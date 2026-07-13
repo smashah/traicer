@@ -1,16 +1,20 @@
 {
-  "name": "@traice/state-sqlite",
+  "name": "@traice/capture-core",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "build": "bun build src/index.ts --outdir dist",
     "lint": "tsc --noEmit",
     "test": "bun test",
     "test:security": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@traice/capture-core": "workspace:*", "@traice/domain": "workspace:*" },
+  "dependencies": {
+    "@traice/crypto": "workspace:*",
+    "@traice/domain": "workspace:*",
+    "@traice/privacy-pipeline": "workspace:*"
+  },
   "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
 }

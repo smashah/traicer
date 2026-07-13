@@ -1,5 +1,5 @@
 {
-  "name": "@traice/state-sqlite",
+  "name": "@traice/storage-s3",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,6 +11,11 @@
     "test:security": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@traice/capture-core": "workspace:*", "@traice/domain": "workspace:*" },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.888.0",
+    "@aws-sdk/s3-request-presigner": "^3.888.0",
+    "@traice/capture-core": "workspace:*",
+    "@traice/crypto": "workspace:*"
+  },
   "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
 }

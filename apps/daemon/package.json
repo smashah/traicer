@@ -13,10 +13,13 @@
   },
   "dependencies": {
     "@traice/api-contract": "workspace:*",
+    "@traice/capture-core": "workspace:*",
     "@traice/crypto": "workspace:*",
     "@traice/domain": "workspace:*",
     "@traice/effect-runtime": "workspace:*",
+    "@traice/marketplace-client": "workspace:*",
     "@traice/state-sqlite": "workspace:*",
+    "@traice/storage-s3": "workspace:*",
     "effect": "catalog:",
     "hono": "catalog:"
   },

@@ -10,6 +10,10 @@ export interface ControlDependencies {
   readonly control: CaptureControlShape;
   readonly controlToken: string;
   readonly databaseReady: () => boolean;
+  readonly gatewayReady?: () => boolean;
+  readonly onPause?: () => void;
+  readonly onResume?: () => void;
+  readonly queueCounts?: () => { readonly committed: number; readonly pending: number };
 }
 
 export const createControlApp = (dependencies: ControlDependencies) => {
@@ -32,7 +36,12 @@ export const createControlApp = (dependencies: ControlDependencies) => {
     return context.json({
       captureStatus,
       database: dependencies.databaseReady() ? "ready" : "error",
-      gateway: "not_started",
+      gateway: dependencies.gatewayReady?.()
+        ? captureStatus === "paused"
+          ? "paused"
+          : "ready"
+        : "not_started",
+      manifests: dependencies.queueCounts?.() ?? { committed: 0, pending: 0 },
       protocolVersion: 1,
       spool: captureStatus === "paused" ? "paused" : "ready",
     });
@@ -41,11 +50,13 @@ export const createControlApp = (dependencies: ControlDependencies) => {
   app.post("/v1/control/pause", async (context) => {
     const input = Schema.decodeUnknownSync(PauseRequestV1)(await context.req.json());
     const captureStatus = await Effect.runPromise(dependencies.control.pause(input.reason));
+    dependencies.onPause?.();
     return context.json({ captureStatus, success: true });
   });
 
   app.post("/v1/control/resume", async (context) => {
     const captureStatus = await Effect.runPromise(dependencies.control.resume());
+    dependencies.onResume?.();
     return context.json({ captureStatus, success: true });
   });
 
