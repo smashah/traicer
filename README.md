@@ -22,7 +22,7 @@ configured coding client
   -> deny-default policy + secret stripping + redaction
   -> canonical trace + AES-256-GCM envelope
   -> seller S3 write/head/full-read verification
-  -> Ed25519 safe manifest + durable SQLite outbox
+  -> Ed25519 safe manifest + durable Drizzle/Bun SQLite outbox
   -> Traice inventory/request work
   -> immutable dataset and agreement signatures
   -> per-delivery re-encryption + 15-minute seller URLs

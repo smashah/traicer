@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 
 import type { SignedSafeManifest } from "@traice/domain";
 
 import { openOperationalState } from "../src";
+import legacySchemaSql from "./fixtures/legacy-schema.sql" with { type: "text" };
 
 const paths: string[] = [];
 
@@ -54,6 +56,57 @@ const signed = (id: string): SignedSafeManifest => ({
 });
 
 describe("durable manifest outbox", () => {
+  test("baselines a pre-Drizzle database without losing typed state", () => {
+    const path = `/tmp/traicer-state-${crypto.randomUUID()}.db`;
+    paths.push(path);
+    const id = crypto.randomUUID();
+    const manifest = signed(id);
+    const now = Date.now();
+
+    const legacy = new Database(path, { create: true, strict: true });
+    legacy.exec(legacySchemaSql);
+    legacy
+      .query<never, [string, string, string, string, string, string, number]>(`
+        INSERT INTO trace_lifecycle (
+          trace_id, state, canonical_hash, ciphertext_hash, client_manifest_id,
+          captured_at, updated_at
+        ) VALUES (?, 'committed', ?, ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        manifest.manifest.canonicalHash,
+        manifest.manifest.ciphertextHash,
+        id,
+        manifest.manifest.capturedAt,
+        now
+      );
+    legacy
+      .query<never, [string, string, string, string, number, number]>(`
+        INSERT INTO manifest_outbox (
+          client_manifest_id, trace_id, idempotency_key, signed_manifest_json,
+          committed_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(id, id, `manifest:${id}`, JSON.stringify(manifest), now, now);
+    legacy.close();
+
+    const migrated = openOperationalState(path);
+    expect(migrated.counts()).toEqual({ committed: 1, pending: 0 });
+    expect(migrated.lifecycleState(id)).toBe("committed");
+    expect(migrated.committedManifests()).toEqual([manifest]);
+    migrated.close();
+
+    const verified = new Database(path, { strict: true });
+    expect(
+      verified
+        .query<{ readonly count: number }, []>(
+          "SELECT count(*) AS count FROM __drizzle_migrations"
+        )
+        .get()?.count
+    ).toBe(1);
+    verified.close();
+  });
+
   test("retains a safe manifest after remote failure and reconciles it once", async () => {
     const path = `/tmp/traicer-state-${crypto.randomUUID()}.db`;
     paths.push(path);

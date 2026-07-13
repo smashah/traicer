@@ -3,14 +3,27 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "build": "bun run db:embed && bun build src/index.ts --outdir dist --target bun",
+    "db:check-embedded": "bun scripts/embed-migrations.ts --check",
+    "db:embed": "bun scripts/embed-migrations.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts && bun run db:embed",
     "lint": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun run db:check-embedded && bun test",
     "test:security": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@traice/capture-core": "workspace:*", "@traice/domain": "workspace:*" },
-  "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
+  "dependencies": {
+    "@traice/capture-core": "workspace:*",
+    "@traice/domain": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "catalog:"
+  }
 }

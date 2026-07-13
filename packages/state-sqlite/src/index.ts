@@ -2,98 +2,32 @@ import { Database } from "bun:sqlite";
 
 import type { MarketplaceManifestSink } from "@traice/capture-core";
 import type { SignedSafeManifest } from "@traice/domain";
+import { and, asc, count, desc, eq, gt, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
-const migrationZero = `
-CREATE TABLE IF NOT EXISTS operational_state (
-  key TEXT PRIMARY KEY NOT NULL,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS safe_audit_events (
-  id TEXT PRIMARY KEY NOT NULL,
-  action TEXT NOT NULL,
-  safe_details TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS trace_lifecycle (
-  trace_id TEXT PRIMARY KEY NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('observed', 'encrypted', 'manifest_pending', 'committed', 'failed')),
-  canonical_hash TEXT,
-  ciphertext_hash TEXT,
-  client_manifest_id TEXT,
-  failure_stage TEXT,
-  safe_error_code TEXT,
-  captured_at TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS manifest_outbox (
-  client_manifest_id TEXT PRIMARY KEY NOT NULL,
-  trace_id TEXT NOT NULL REFERENCES trace_lifecycle(trace_id),
-  idempotency_key TEXT NOT NULL UNIQUE,
-  signed_manifest_json TEXT NOT NULL,
-  attempt_count INTEGER NOT NULL DEFAULT 0,
-  last_attempt_at INTEGER,
-  safe_error_code TEXT,
-  committed_at INTEGER,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS manifest_outbox_pending_idx
-  ON manifest_outbox(committed_at, created_at);
-CREATE TABLE IF NOT EXISTS safe_events (
-  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-  kind TEXT NOT NULL,
-  safe_details TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS safe_events_created_idx ON safe_events(created_at);
-CREATE TABLE IF NOT EXISTS delivery_objects (
-  ciphertext_hash TEXT PRIMARY KEY NOT NULL,
-  expires_at INTEGER NOT NULL,
-  deleted_at INTEGER,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS delivery_objects_expiry_idx
-  ON delivery_objects(deleted_at, expires_at);
-CREATE TABLE IF NOT EXISTS manifest_tombstones (
-  client_manifest_id TEXT PRIMARY KEY NOT NULL,
-  tombstoned_at INTEGER NOT NULL,
-  safe_reason_code TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS multipart_uploads (
-  ciphertext_hash TEXT PRIMARY KEY NOT NULL,
-  upload_id TEXT NOT NULL,
-  parts_json TEXT NOT NULL DEFAULT '[]',
-  updated_at INTEGER NOT NULL
-);`;
+import { migrateOperationalState } from "./migrate";
+import {
+  deliveryObjects,
+  type LifecycleState,
+  manifestOutbox,
+  manifestTombstones,
+  multipartUploads,
+  operationalSchema,
+  type SafeDetails,
+  safeEvents,
+  traceLifecycle,
+} from "./schema";
 
-type LifecycleState = "observed" | "encrypted" | "manifest_pending" | "committed" | "failed";
+export * from "./schema";
 
-interface LifecycleRow {
-  readonly state: LifecycleState;
-}
-
-interface PendingManifestRow {
-  readonly client_manifest_id: string;
-  readonly idempotency_key: string;
-  readonly signed_manifest_json: string;
-  readonly trace_id: string;
-}
-
-interface DeliveryObjectRow {
-  readonly ciphertext_hash: string;
-  readonly expires_at: number;
-}
-
-interface TraceObjectRow {
-  readonly ciphertext_hash: string;
-  readonly client_manifest_id: string;
-  readonly signed_manifest_json: string;
-  readonly trace_id: string;
-}
+type PendingManifest = Pick<
+  typeof manifestOutbox.$inferSelect,
+  "clientManifestId" | "idempotencyKey" | "signedManifest" | "traceId"
+>;
 
 export interface SafeEvent {
   readonly createdAt: string;
-  readonly details: Readonly<Record<string, boolean | number | string>>;
+  readonly details: SafeDetails;
   readonly kind: string;
   readonly sequence: number;
 }
@@ -113,37 +47,46 @@ const safeErrorCode = (error: unknown): string => {
   return "remote_unavailable";
 };
 
-export const openOperationalState = (path: string) => {
-  const database = new Database(path, { create: true, strict: true });
-  database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-  database.exec(migrationZero);
+const boundedLimit = (limit: number, maximum: number) =>
+  Math.min(Math.max(limit, 1), maximum);
 
-  const recordEvent = (
-    kind: string,
-    details: Readonly<Record<string, boolean | number | string>> = {}
-  ): void => {
-    database
-      .query<never, [string, string, number]>(`
-        INSERT INTO safe_events (kind, safe_details, created_at) VALUES (?, ?, ?)
-      `)
-      .run(kind, JSON.stringify(details), Date.now());
-    database
-      .query<never, []>(`
-        DELETE FROM safe_events WHERE sequence NOT IN (
-          SELECT sequence FROM safe_events ORDER BY sequence DESC LIMIT 500
-        )
-      `)
+export const openOperationalState = (path: string) => {
+  const sqlite = new Database(path, { create: true, strict: true });
+  sqlite.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+
+  const db = drizzle(sqlite, { schema: operationalSchema });
+  migrateOperationalState(db);
+
+  const trimEvents = (): void => {
+    const boundary = db
+      .select({ sequence: safeEvents.sequence })
+      .from(safeEvents)
+      .orderBy(desc(safeEvents.sequence))
+      .limit(1)
+      .offset(499)
+      .get();
+    if (boundary) {
+      db.delete(safeEvents).where(lt(safeEvents.sequence, boundary.sequence)).run();
+    }
+  };
+
+  const recordEvent = (kind: string, details: SafeDetails = {}): void => {
+    db.insert(safeEvents)
+      .values({ createdAt: Date.now(), kind, safeDetails: details })
       .run();
+    trimEvents();
   };
 
   const recordObserved = (traceId: string, capturedAt: string): void => {
-    database
-      .query<never, [string, string, number]>(`
-        INSERT INTO trace_lifecycle (trace_id, state, captured_at, updated_at)
-        VALUES (?, 'observed', ?, ?)
-        ON CONFLICT(trace_id) DO NOTHING
-      `)
-      .run(traceId, capturedAt, Date.now());
+    db.insert(traceLifecycle)
+      .values({
+        capturedAt,
+        state: "observed",
+        traceId,
+        updatedAt: Date.now(),
+      })
+      .onConflictDoNothing({ target: traceLifecycle.traceId })
+      .run();
     recordEvent("queue.changed", { state: "observed" });
   };
 
@@ -152,120 +95,154 @@ export const openOperationalState = (path: string) => {
     canonicalHash: string,
     ciphertextHash: string
   ): void => {
-    database
-      .query<never, [string, string, number, string]>(`
-        UPDATE trace_lifecycle
-        SET state = 'encrypted', canonical_hash = ?, ciphertext_hash = ?, updated_at = ?
-        WHERE trace_id = ?
-      `)
-      .run(canonicalHash, ciphertextHash, Date.now(), traceId);
+    db.update(traceLifecycle)
+      .set({
+        canonicalHash,
+        ciphertextHash,
+        state: "encrypted",
+        updatedAt: Date.now(),
+      })
+      .where(eq(traceLifecycle.traceId, traceId))
+      .run();
   };
 
   const recordFailure = (traceId: string, stage: string, code: string): void => {
-    database
-      .query<never, [string, string, number, string]>(`
-        UPDATE trace_lifecycle
-        SET state = 'failed', failure_stage = ?, safe_error_code = ?, updated_at = ?
-        WHERE trace_id = ?
-      `)
-      .run(stage, code, Date.now(), traceId);
+    db.update(traceLifecycle)
+      .set({
+        failureStage: stage,
+        safeErrorCode: code,
+        state: "failed",
+        updatedAt: Date.now(),
+      })
+      .where(eq(traceLifecycle.traceId, traceId))
+      .run();
     recordEvent("queue.changed", { safeErrorCode: code, stage, state: "failed" });
   };
 
   const recordManifestPending = (traceId: string, clientManifestId: string): void => {
-    database
-      .query<never, [string, number, string]>(`
-        UPDATE trace_lifecycle
-        SET state = 'manifest_pending', client_manifest_id = ?, updated_at = ?
-        WHERE trace_id = ?
-      `)
-      .run(clientManifestId, Date.now(), traceId);
+    db.update(traceLifecycle)
+      .set({
+        clientManifestId,
+        state: "manifest_pending",
+        updatedAt: Date.now(),
+      })
+      .where(eq(traceLifecycle.traceId, traceId))
+      .run();
   };
 
   const recordCommitted = (traceId: string): void => {
-    database
-      .query<never, [number, string]>(`
-        UPDATE trace_lifecycle SET state = 'committed', updated_at = ? WHERE trace_id = ?
-      `)
-      .run(Date.now(), traceId);
+    db.update(traceLifecycle)
+      .set({ state: "committed", updatedAt: Date.now() })
+      .where(eq(traceLifecycle.traceId, traceId))
+      .run();
     recordEvent("manifest.committed", { committed: true });
   };
 
-  const pendingRows = (): readonly PendingManifestRow[] =>
-    database
-      .query<PendingManifestRow, []>(`
-        SELECT client_manifest_id, idempotency_key, signed_manifest_json, trace_id
-        FROM manifest_outbox
-        WHERE committed_at IS NULL
-        ORDER BY created_at ASC
-      `)
+  const pendingRows = (): readonly PendingManifest[] =>
+    db
+      .select({
+        clientManifestId: manifestOutbox.clientManifestId,
+        idempotencyKey: manifestOutbox.idempotencyKey,
+        signedManifest: manifestOutbox.signedManifest,
+        traceId: manifestOutbox.traceId,
+      })
+      .from(manifestOutbox)
+      .where(isNull(manifestOutbox.committedAt))
+      .orderBy(asc(manifestOutbox.createdAt))
       .all();
 
   const enqueue = (idempotencyKey: string, signed: SignedSafeManifest): void => {
     const now = Date.now();
-    const traceId =
-      database
-        .query<{ readonly trace_id: string }, [string]>(`
-          SELECT trace_id FROM trace_lifecycle WHERE client_manifest_id = ? LIMIT 1
-        `)
-        .get(signed.manifest.clientManifestId)?.trace_id ?? signed.manifest.clientManifestId;
-    database.transaction(() => {
-      if (traceId === signed.manifest.clientManifestId) {
-        recordObserved(traceId, signed.manifest.capturedAt);
-        recordEncrypted(traceId, signed.manifest.canonicalHash, signed.manifest.ciphertextHash);
-        recordManifestPending(traceId, signed.manifest.clientManifestId);
+    const existing = db
+      .select({ traceId: traceLifecycle.traceId })
+      .from(traceLifecycle)
+      .where(eq(traceLifecycle.clientManifestId, signed.manifest.clientManifestId))
+      .limit(1)
+      .get();
+    const traceId = existing?.traceId ?? signed.manifest.clientManifestId;
+
+    db.transaction((tx) => {
+      if (!existing) {
+        tx.insert(traceLifecycle)
+          .values({
+            canonicalHash: signed.manifest.canonicalHash,
+            capturedAt: signed.manifest.capturedAt,
+            ciphertextHash: signed.manifest.ciphertextHash,
+            clientManifestId: signed.manifest.clientManifestId,
+            state: "manifest_pending",
+            traceId,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: traceLifecycle.traceId })
+          .run();
+        tx.insert(safeEvents)
+          .values({
+            createdAt: now,
+            kind: "queue.changed",
+            safeDetails: { state: "observed" },
+          })
+          .run();
       }
-      database
-        .query<never, [string, string, string, string, number]>(`
-          INSERT INTO manifest_outbox (
-            client_manifest_id, trace_id, idempotency_key, signed_manifest_json, created_at
-          ) VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(client_manifest_id) DO NOTHING
-        `)
-        .run(
-          signed.manifest.clientManifestId,
-          traceId,
+      tx.insert(manifestOutbox)
+        .values({
+          clientManifestId: signed.manifest.clientManifestId,
+          createdAt: now,
           idempotencyKey,
-          JSON.stringify(signed),
-          now
-        );
-    })();
+          signedManifest: signed,
+          traceId,
+        })
+        .onConflictDoNothing({ target: manifestOutbox.clientManifestId })
+        .run();
+    });
+    if (!existing) {
+      trimEvents();
+    }
   };
 
-  const markCommitted = (row: PendingManifestRow): void => {
+  const markCommitted = (row: PendingManifest): void => {
     const now = Date.now();
-    database.transaction(() => {
-      database
-        .query<never, [number, string]>(`
-          UPDATE manifest_outbox SET committed_at = ?, safe_error_code = NULL
-          WHERE client_manifest_id = ? AND committed_at IS NULL
-        `)
-        .run(now, row.client_manifest_id);
-      database
-        .query<never, [number, string]>(`
-          UPDATE trace_lifecycle SET state = 'committed', updated_at = ? WHERE trace_id = ?
-        `)
-        .run(now, row.trace_id);
-    })();
+    db.transaction((tx) => {
+      tx.update(manifestOutbox)
+        .set({ committedAt: now, safeErrorCode: null })
+        .where(
+          and(
+            eq(manifestOutbox.clientManifestId, row.clientManifestId),
+            isNull(manifestOutbox.committedAt)
+          )
+        )
+        .run();
+      tx.update(traceLifecycle)
+        .set({ state: "committed", updatedAt: now })
+        .where(eq(traceLifecycle.traceId, row.traceId))
+        .run();
+    });
   };
 
-  const markAttemptFailed = (row: PendingManifestRow, error: unknown): void => {
-    database
-      .query<never, [number, string, string]>(`
-        UPDATE manifest_outbox
-        SET attempt_count = attempt_count + 1, last_attempt_at = ?, safe_error_code = ?
-        WHERE client_manifest_id = ? AND committed_at IS NULL
-      `)
-      .run(Date.now(), safeErrorCode(error), row.client_manifest_id);
+  const markAttemptFailed = (row: PendingManifest, error: unknown): void => {
+    db.update(manifestOutbox)
+      .set({
+        attemptCount: sql`${manifestOutbox.attemptCount} + 1`,
+        lastAttemptAt: Date.now(),
+        safeErrorCode: safeErrorCode(error),
+      })
+      .where(
+        and(
+          eq(manifestOutbox.clientManifestId, row.clientManifestId),
+          isNull(manifestOutbox.committedAt)
+        )
+      )
+      .run();
   };
 
   const submitRow = async (
     remote: MarketplaceManifestSink,
-    row: PendingManifestRow
+    row: PendingManifest
   ): Promise<void> => {
-    const signed = JSON.parse(row.signed_manifest_json) as SignedSafeManifest;
     try {
-      await remote.submit({ idempotencyKey: row.idempotency_key, manifests: [signed] });
+      await remote.submit({
+        idempotencyKey: row.idempotencyKey,
+        manifests: [row.signedManifest],
+      });
       markCommitted(row);
     } catch (error) {
       markAttemptFailed(row, error);
@@ -274,60 +251,56 @@ export const openOperationalState = (path: string) => {
   };
 
   return {
-    close: () => database.close(),
+    close: () => sqlite.close(),
     committedManifests: (limit = 10_000): readonly SignedSafeManifest[] =>
-      database
-        .query<{ readonly signed_manifest_json: string }, [number]>(`
-          SELECT signed_manifest_json FROM manifest_outbox
-          WHERE committed_at IS NOT NULL ORDER BY committed_at ASC LIMIT ?
-        `)
-        .all(Math.min(Math.max(limit, 1), 10_000))
-        .map((row) => JSON.parse(row.signed_manifest_json) as SignedSafeManifest),
+      db
+        .select({ signedManifest: manifestOutbox.signedManifest })
+        .from(manifestOutbox)
+        .where(isNotNull(manifestOutbox.committedAt))
+        .orderBy(asc(manifestOutbox.committedAt))
+        .limit(boundedLimit(limit, 10_000))
+        .all()
+        .map((row) => row.signedManifest),
     counts: () => ({
-      committed: database
-        .query<{ readonly count: number }, []>(
-          "SELECT count(*) AS count FROM manifest_outbox WHERE committed_at IS NOT NULL"
-        )
-        .get()?.count ?? 0,
-      pending: database
-        .query<{ readonly count: number }, []>(
-          "SELECT count(*) AS count FROM manifest_outbox WHERE committed_at IS NULL"
-        )
-        .get()?.count ?? 0,
+      committed:
+        db
+          .select({ value: count() })
+          .from(manifestOutbox)
+          .where(isNotNull(manifestOutbox.committedAt))
+          .get()?.value ?? 0,
+      pending:
+        db
+          .select({ value: count() })
+          .from(manifestOutbox)
+          .where(isNull(manifestOutbox.committedAt))
+          .get()?.value ?? 0,
     }),
     createDurableManifestSink: (remote: MarketplaceManifestSink): MarketplaceManifestSink => ({
       submit: async (input) => {
         for (const signed of input.manifests) {
           enqueue(input.idempotencyKey, signed);
         }
-        const rows = pendingRows().filter((row) =>
-          input.manifests.some(
-            (signed) => signed.manifest.clientManifestId === row.client_manifest_id
-          )
+        const manifestIds = new Set(
+          input.manifests.map((signed) => signed.manifest.clientManifestId)
         );
-        for (const row of rows) {
+        for (const row of pendingRows().filter((pending) =>
+          manifestIds.has(pending.clientManifestId)
+        )) {
           await submitRow(remote, row);
         }
       },
     }),
-    integrityCheck: () =>
-      database.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()
-        ?.integrity_check === "ok",
     eventsAfter: (sequence = 0): readonly SafeEvent[] =>
-      database
-        .query<{
-          readonly sequence: number;
-          readonly kind: string;
-          readonly safe_details: string;
-          readonly created_at: number;
-        }, [number]>(`
-          SELECT sequence, kind, safe_details, created_at
-          FROM safe_events WHERE sequence > ? ORDER BY sequence ASC LIMIT 100
-        `)
-        .all(sequence)
+      db
+        .select()
+        .from(safeEvents)
+        .where(gt(safeEvents.sequence, sequence))
+        .orderBy(asc(safeEvents.sequence))
+        .limit(100)
+        .all()
         .map((row) => ({
-          createdAt: new Date(row.created_at).toISOString(),
-          details: JSON.parse(row.safe_details) as Readonly<Record<string, boolean | number | string>>,
+          createdAt: new Date(row.createdAt).toISOString(),
+          details: row.safeDetails,
           kind: row.kind,
           sequence: row.sequence,
         })),
@@ -335,54 +308,88 @@ export const openOperationalState = (path: string) => {
       readonly ciphertextHash: string;
       readonly expiresAt: string;
     }[] =>
-      database
-        .query<DeliveryObjectRow, [number]>(`
-          SELECT ciphertext_hash, expires_at FROM delivery_objects
-          WHERE deleted_at IS NULL AND expires_at <= ? ORDER BY expires_at ASC
-        `)
-        .all(at)
-        .map((row) => ({
-          ciphertextHash: row.ciphertext_hash,
-          expiresAt: new Date(row.expires_at).toISOString(),
-        })),
-    lifecycleState: (traceId: string): LifecycleState | undefined =>
-      database
-        .query<LifecycleRow, [string]>(
-          "SELECT state FROM trace_lifecycle WHERE trace_id = ?"
+      db
+        .select({
+          ciphertextHash: deliveryObjects.ciphertextHash,
+          expiresAt: deliveryObjects.expiresAt,
+        })
+        .from(deliveryObjects)
+        .where(
+          and(isNull(deliveryObjects.deletedAt), lte(deliveryObjects.expiresAt, at))
         )
-        .get(traceId)?.state,
-    traceObject: (traceId: string): {
-      readonly ciphertextHash: string;
-      readonly clientManifestId: string;
-      readonly signedManifest: SignedSafeManifest;
-      readonly traceId: string;
-    } | undefined => {
-      const row = database.query<TraceObjectRow, [string]>(`
-        SELECT lifecycle.trace_id, lifecycle.ciphertext_hash, lifecycle.client_manifest_id,
-               outbox.signed_manifest_json
-        FROM trace_lifecycle lifecycle
-        JOIN manifest_outbox outbox ON outbox.client_manifest_id = lifecycle.client_manifest_id
-        WHERE lifecycle.trace_id = ? AND lifecycle.state = 'committed' LIMIT 1
-      `).get(traceId);
-      return row ? {
-        ciphertextHash: row.ciphertext_hash,
-        clientManifestId: row.client_manifest_id,
-        signedManifest: JSON.parse(row.signed_manifest_json) as SignedSafeManifest,
-        traceId: row.trace_id,
-      } : undefined;
+        .orderBy(asc(deliveryObjects.expiresAt))
+        .all()
+        .map((row) => ({
+          ciphertextHash: row.ciphertextHash,
+          expiresAt: new Date(row.expiresAt).toISOString(),
+        })),
+    integrityCheck: () =>
+      db.get<{ integrity_check: string }>(sql.raw("PRAGMA integrity_check"))
+        ?.integrity_check === "ok",
+    lifecycleState: (traceId: string): LifecycleState | undefined =>
+      db
+        .select({ state: traceLifecycle.state })
+        .from(traceLifecycle)
+        .where(eq(traceLifecycle.traceId, traceId))
+        .limit(1)
+        .get()?.state,
+    markDeliveryObjectDeleted: (ciphertextHash: string): void => {
+      db.update(deliveryObjects)
+        .set({ deletedAt: Date.now() })
+        .where(eq(deliveryObjects.ciphertextHash, ciphertextHash))
+        .run();
     },
-    tombstoneTrace: (traceId: string, clientManifestId: string, reasonCode: string): void => {
-      database.transaction(() => {
-        database.query<never, [string, number, string]>(`
-          INSERT INTO manifest_tombstones (client_manifest_id, tombstoned_at, safe_reason_code)
-          VALUES (?, ?, ?) ON CONFLICT(client_manifest_id) DO NOTHING
-        `).run(clientManifestId, Date.now(), reasonCode);
-        database.query<never, [string]>("DELETE FROM manifest_outbox WHERE client_manifest_id = ?")
-          .run(clientManifestId);
-        database.query<never, [string]>("DELETE FROM trace_lifecycle WHERE trace_id = ?")
-          .run(traceId);
-      })();
-      recordEvent("manifest.tombstoned", { deleted: true });
+    multipartJournal: {
+      clear: (ciphertextHash: string): void => {
+        db.delete(multipartUploads)
+          .where(eq(multipartUploads.ciphertextHash, ciphertextHash))
+          .run();
+      },
+      load: (
+        ciphertextHash: string
+      ):
+        | {
+            readonly parts: typeof multipartUploads.$inferSelect.parts;
+            readonly uploadId: string;
+          }
+        | undefined => {
+        const row = db
+          .select({ parts: multipartUploads.parts, uploadId: multipartUploads.uploadId })
+          .from(multipartUploads)
+          .where(eq(multipartUploads.ciphertextHash, ciphertextHash))
+          .limit(1)
+          .get();
+        return row ? { parts: row.parts, uploadId: row.uploadId } : undefined;
+      },
+      recordPart: (ciphertextHash: string, partNumber: number, eTag: string): void => {
+        const current = db
+          .select({ parts: multipartUploads.parts })
+          .from(multipartUploads)
+          .where(eq(multipartUploads.ciphertextHash, ciphertextHash))
+          .limit(1)
+          .get();
+        if (!current) {
+          throw new Error("Multipart upload journal is missing");
+        }
+        const parts = [
+          ...current.parts.filter((part) => part.partNumber !== partNumber),
+          { eTag, partNumber },
+        ].sort((left, right) => left.partNumber - right.partNumber);
+        db.update(multipartUploads)
+          .set({ parts, updatedAt: Date.now() })
+          .where(eq(multipartUploads.ciphertextHash, ciphertextHash))
+          .run();
+      },
+      start: (ciphertextHash: string, uploadId: string): void => {
+        const now = Date.now();
+        db.insert(multipartUploads)
+          .values({ ciphertextHash, parts: [], updatedAt: now, uploadId })
+          .onConflictDoUpdate({
+            set: { parts: [], updatedAt: now, uploadId },
+            target: multipartUploads.ciphertextHash,
+          })
+          .run();
+      },
     },
     reconcile: async (remote: MarketplaceManifestSink): Promise<number> => {
       let committed = 0;
@@ -392,80 +399,101 @@ export const openOperationalState = (path: string) => {
       }
       return committed;
     },
+    recordCommitted,
     recordDeliveryObject: (ciphertextHash: string, expiresAt: string): void => {
       const expiry = Date.parse(expiresAt);
-      if (!Number.isFinite(expiry)) throw new Error("Delivery object expiry is invalid");
-      database
-        .query<never, [string, number, number]>(`
-          INSERT INTO delivery_objects (ciphertext_hash, expires_at, created_at)
-          VALUES (?, ?, ?) ON CONFLICT(ciphertext_hash) DO NOTHING
-        `)
-        .run(ciphertextHash, expiry, Date.now());
+      if (!Number.isFinite(expiry)) {
+        throw new Error("Delivery object expiry is invalid");
+      }
+      db.insert(deliveryObjects)
+        .values({ ciphertextHash, createdAt: Date.now(), expiresAt: expiry })
+        .onConflictDoNothing({ target: deliveryObjects.ciphertextHash })
+        .run();
     },
-    markDeliveryObjectDeleted: (ciphertextHash: string): void => {
-      database
-        .query<never, [number, string]>(`
-          UPDATE delivery_objects SET deleted_at = ? WHERE ciphertext_hash = ?
-        `)
-        .run(Date.now(), ciphertextHash);
-    },
-    multipartJournal: {
-      clear: (ciphertextHash: string): void => {
-        database.query<never, [string]>("DELETE FROM multipart_uploads WHERE ciphertext_hash = ?")
-          .run(ciphertextHash);
-      },
-      load: (ciphertextHash: string): { readonly parts: readonly { readonly eTag: string; readonly partNumber: number }[]; readonly uploadId: string } | undefined => {
-        const row = database.query<{ readonly parts_json: string; readonly upload_id: string }, [string]>(
-          "SELECT upload_id, parts_json FROM multipart_uploads WHERE ciphertext_hash = ?"
-        ).get(ciphertextHash);
-        return row ? {
-          parts: JSON.parse(row.parts_json) as readonly { readonly eTag: string; readonly partNumber: number }[],
-          uploadId: row.upload_id,
-        } : undefined;
-      },
-      recordPart: (ciphertextHash: string, partNumber: number, eTag: string): void => {
-        const current = database.query<{ readonly parts_json: string }, [string]>(
-          "SELECT parts_json FROM multipart_uploads WHERE ciphertext_hash = ?"
-        ).get(ciphertextHash);
-        if (!current) throw new Error("Multipart upload journal is missing");
-        const parts = JSON.parse(current.parts_json) as { eTag: string; partNumber: number }[];
-        const next = [...parts.filter((part) => part.partNumber !== partNumber), { eTag, partNumber }]
-          .sort((left, right) => left.partNumber - right.partNumber);
-        database.query<never, [string, number, string]>(`
-          UPDATE multipart_uploads SET parts_json = ?, updated_at = ? WHERE ciphertext_hash = ?
-        `).run(JSON.stringify(next), Date.now(), ciphertextHash);
-      },
-      start: (ciphertextHash: string, uploadId: string): void => {
-        database.query<never, [string, string, number]>(`
-          INSERT INTO multipart_uploads (ciphertext_hash, upload_id, updated_at)
-          VALUES (?, ?, ?) ON CONFLICT(ciphertext_hash) DO UPDATE SET
-            upload_id = excluded.upload_id, parts_json = '[]', updated_at = excluded.updated_at
-        `).run(ciphertextHash, uploadId, Date.now());
-      },
-    },
-    recordEvent,
     recordEncrypted,
-    recordCommitted,
+    recordEvent,
     recordFailure,
     recordManifestPending,
     recordObserved,
+    tombstoneTrace: (
+      traceId: string,
+      clientManifestId: string,
+      reasonCode: string
+    ): void => {
+      db.transaction((tx) => {
+        tx.insert(manifestTombstones)
+          .values({
+            clientManifestId,
+            safeReasonCode: reasonCode,
+            tombstonedAt: Date.now(),
+          })
+          .onConflictDoNothing({ target: manifestTombstones.clientManifestId })
+          .run();
+        tx.delete(manifestOutbox)
+          .where(eq(manifestOutbox.clientManifestId, clientManifestId))
+          .run();
+        tx.delete(traceLifecycle).where(eq(traceLifecycle.traceId, traceId)).run();
+      });
+      recordEvent("manifest.tombstoned", { deleted: true });
+    },
+    traceObject: (
+      traceId: string
+    ):
+      | {
+          readonly ciphertextHash: string;
+          readonly clientManifestId: string;
+          readonly signedManifest: SignedSafeManifest;
+          readonly traceId: string;
+        }
+      | undefined => {
+      const row = db
+        .select({
+          ciphertextHash: traceLifecycle.ciphertextHash,
+          clientManifestId: traceLifecycle.clientManifestId,
+          signedManifest: manifestOutbox.signedManifest,
+          traceId: traceLifecycle.traceId,
+        })
+        .from(traceLifecycle)
+        .innerJoin(
+          manifestOutbox,
+          eq(manifestOutbox.clientManifestId, traceLifecycle.clientManifestId)
+        )
+        .where(
+          and(
+            eq(traceLifecycle.traceId, traceId),
+            eq(traceLifecycle.state, "committed")
+          )
+        )
+        .limit(1)
+        .get();
+      if (!row?.ciphertextHash || !row.clientManifestId) {
+        return undefined;
+      }
+      return {
+        ciphertextHash: row.ciphertextHash,
+        clientManifestId: row.clientManifestId,
+        signedManifest: row.signedManifest,
+        traceId: row.traceId,
+      };
+    },
     traces: (limit = 50, offset = 0): readonly SafeTraceSummary[] =>
-      database
-        .query<{
-          readonly captured_at: string;
-          readonly state: LifecycleState;
-          readonly trace_id: string;
-          readonly updated_at: number;
-        }, [number, number]>(`
-          SELECT trace_id, state, captured_at, updated_at
-          FROM trace_lifecycle ORDER BY updated_at DESC LIMIT ? OFFSET ?
-        `)
-        .all(Math.min(Math.max(limit, 1), 100), Math.max(offset, 0))
+      db
+        .select({
+          capturedAt: traceLifecycle.capturedAt,
+          state: traceLifecycle.state,
+          traceId: traceLifecycle.traceId,
+          updatedAt: traceLifecycle.updatedAt,
+        })
+        .from(traceLifecycle)
+        .orderBy(desc(traceLifecycle.updatedAt))
+        .limit(boundedLimit(limit, 100))
+        .offset(Math.max(offset, 0))
+        .all()
         .map((row) => ({
-          capturedAt: row.captured_at,
+          capturedAt: row.capturedAt,
           state: row.state,
-          traceId: row.trace_id,
-          updatedAt: new Date(row.updated_at).toISOString(),
+          traceId: row.traceId,
+          updatedAt: new Date(row.updatedAt).toISOString(),
         })),
   };
 };
