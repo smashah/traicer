@@ -1,0 +1,16 @@
+[package]
+name = "traicer"
+version = "0.0.0"
+description = "Seller-operated Traice capture toolbar"
+edition = "2021"
+
+[lib]
+name = "traicer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"

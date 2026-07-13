@@ -1,0 +1,16 @@
+{
+  "name": "@traice/effect-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist",
+    "lint": "tsc --noEmit",
+    "test": "bun test",
+    "test:security": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "@traice/domain": "workspace:*", "effect": "catalog:" },
+  "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
+}

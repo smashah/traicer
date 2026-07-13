@@ -1,0 +1,29 @@
+{
+  "name": "@traice/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "lint": "tsc --noEmit",
+    "package": "tauri build",
+    "test": "bun test --pass-with-no-tests",
+    "test:security": "bun test --pass-with-no-tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "catalog:desktop",
+    "react": "catalog:desktop",
+    "react-dom": "catalog:desktop"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "catalog:desktop",
+    "@types/bun": "catalog:",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "catalog:desktop",
+    "typescript": "catalog:",
+    "vite": "catalog:desktop"
+  }
+}

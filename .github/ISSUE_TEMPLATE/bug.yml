@@ -1,0 +1,28 @@
+name: Sanitised bug report
+description: Report a defect without attaching traces, logs, code, or credentials.
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste prompts, responses, source code, raw logs, credentials, object locations, presigned URLs, or diagnostics bundles.
+  - type: input
+    id: version
+    attributes: { label: Version or commit }
+    validations: { required: true }
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [macOS, Windows, Linux]
+    validations: { required: true }
+  - type: textarea
+    id: behaviour
+    attributes: { label: Sanitised behaviour and reproduction steps }
+    validations: { required: true }
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I reviewed this report and it contains no raw trace, secret, credential, code, path, or object locator.
+          required: true

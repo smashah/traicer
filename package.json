@@ -1,0 +1,24 @@
+{
+  "name": "@traice/traicer-root",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "bun": ">=1.3.0",
+    "pnpm": ">=10.28.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "package": "turbo run package",
+    "test": "turbo run test",
+    "test:security": "turbo run test:security",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@traice/api-contract",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist",
+    "lint": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests",
+    "test:security": "bun test --pass-with-no-tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "effect": "catalog:" },
+  "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
+}

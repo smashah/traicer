@@ -1,0 +1,15 @@
+{
+  "name": "@traice/state-sqlite",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "lint": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests",
+    "test:security": "bun test --pass-with-no-tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
+}

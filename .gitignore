@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+.env
+.env.*
+!.env.example
