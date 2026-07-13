@@ -1,65 +1,66 @@
 # Traicer
 
-Traicer is the public, seller-operated companion to
-[Traice Market](https://traice.market). It is designed to capture eligible
-coding-agent interactions locally, redact and encrypt accepted traces on the
-seller's machine, upload ciphertext directly to seller-owned S3-compatible
-storage, and send only signed, content-free commitments to the marketplace.
+Traicer is the public, seller-operated local client for [Traice Market](https://traice.market). It captures only explicitly configured AI-provider traffic, redacts and canonicalises accepted exchanges locally, encrypts them into seller-owned S3-compatible storage, and sends only signed content-free commitments to the marketplace.
 
-This repository now has a tested pre-release OpenAI vertical slice. The Bun/Hono
-daemon forwards fixed-upstream Responses and Chat Completions traffic, applies a
-deny-by-default capture policy, redacts and canonicalises accepted exchanges,
-encrypts each trace with an authenticated per-trace envelope, uploads through a
-SigV4 S3-compatible client with full readback verification, signs a content-free
-manifest with Ed25519, and durably retries marketplace submission through SQLite.
-
-It is not a distributable release yet. Anthropic capture, production OS-vault
-brokering, live desktop state, signed native installers, SBOM/provenance, and
-external security review remain open milestones.
+This repository contains a pre-release client, not an endorsed installer. OpenAI Responses/Chat Completions and Anthropic Messages gateways, an authenticated explicit HTTP/HTTPS proxy, selective exact-host TLS capture with opt-in current-user CA trust, the Tauri desktop shell, OS credential vault, resumable storage transfer, deletion/tombstones, durable marketplace work, direct buyer-encrypted delivery, and signed Tauri updates are implemented. A distribution licence, production Apple/Windows signing and Apple notarisation, published update-feed verification, clean-machine release verification, live compatibility evidence, and external security review are still required before an endorsed release.
 
 ## Trust boundary
 
-- Raw trace bodies never go to Traice-controlled systems.
-- Storage credentials and private keys remain in the local vault boundary.
-- Capture is explicit and deny-by-default.
-- Unsafe or unknown data is forwarded to the provider but excluded from
-  persistence.
-- A device signature is a seller commitment, not proof of provider origin,
-  ownership, legality, or training suitability.
+- Provider traffic is forwarded through a fixed upstream and exact method/path allowlist; capture persistence fails closed while provider forwarding fails open.
+- The explicit proxy requires a per-install loopback capability, blind-tunnels non-target `CONNECT` traffic, and terminates TLS only for exact supported provider hosts after the user explicitly trusts the generated CA. Denied paths are forwarded without entering capture, storage, logs, or telemetry.
+- Redaction runs before deterministic canonicalisation, hashing, encryption, local persistence, or marketplace egress.
+- Raw trace bodies, reusable storage credentials, private keys, plaintext delivery capabilities, and private object locations never enter Traice-controlled systems.
+- Ciphertext is written directly to the seller's bucket and verified by metadata plus a full readback.
+- Safe manifests, readiness checks, inventory, dataset roots, agreements, envelopes, and receipts are signed commitments. They do not prove provider origin, ownership, legality, usefulness, or payment outside the verified integrated flow.
 
-## Development
+## Implemented flow
 
-Install Bun, Rust, the Tauri platform prerequisites, and pnpm 10.28 or newer.
+```text
+configured coding client
+  -> loopback fixed-upstream gateway or authenticated explicit proxy
+  -> provider response returned unchanged
+  -> deny-default policy + secret stripping + redaction
+  -> canonical trace + AES-256-GCM envelope
+  -> seller S3 write/head/full-read verification
+  -> Ed25519 safe manifest + durable SQLite outbox
+  -> Traice inventory/request work
+  -> immutable dataset and agreement signatures
+  -> per-delivery re-encryption + 15-minute seller URLs
+  -> X25519 buyer-encrypted capability submitted to Traice
+```
+
+Large seller-storage objects use a durable multipart journal so interrupted uploads resume without restarting completed parts. Expired temporary delivery objects are durably tracked and deleted from seller storage. A local trace deletion removes seller ciphertext, submits a signed marketplace tombstone, then erases local object references. The buyer application unwraps the capability locally, downloads directly from seller storage, verifies ciphertext and canonical hashes, and submits an Ed25519 receipt.
+
+## Desktop security model
+
+The Tauri shell stores configuration, the marketplace credential, Ed25519 private key, seller-storage secret, and local wrapping key in the operating-system credential vault. The React webview receives only safe configuration/status. A one-use stdin bootstrap carries secrets to the native Bun daemon; secrets never use process arguments, environment variables, stdout, diagnostic exports, or marketplace payloads.
+
+The desktop supports pause/resume, loopback health, marketplace work, dataset commitment, seller agreement proposal, delivery preparation, trace deletion, explicit proxy configuration, opt-in CA trust and removal, launch-at-login, and a three-start/five-minute crash-loop budget. Managed PAC/system proxy changes and native transparent redirection are separate privileged modes and are not silently installed by this release.
+
+## Development and verification
+
+Install Node 24, pnpm 10.28.1, Bun, Rust 1.88, and the Tauri platform prerequisites.
 
 ```sh
 pnpm install
 pnpm typecheck
 pnpm test
-pnpm --filter @traice/daemon build
+pnpm build
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
 ```
 
-The daemon expects one JSON bootstrap document on stdin and never accepts
-secrets through arguments, environment variables, files, or stdout:
+CI also compiles the native daemon, creates an unsigned debug Linux package, and rejects imports from reference source trees. Tagged-release CI targets macOS arm64/x64, Linux x64, and Windows x64, then prepares checksums, CycloneDX SBOMs, provenance attestations, and a draft GitHub release.
 
-```json
-{"protocolVersion":1,"controlToken":"<32+ random characters>","vaultKey":"<base64url 256-bit key>","capture":{"adapterCapability":"<unguessable local capability>","bucketAlias":"<safe alias>","client":"codex","deviceId":"<registered device UUID>","marketplace":{"apiBaseUrl":"https://api.traice.market","credential":"<manifest capability>"},"policy":{"allowedPaths":["/v1/responses","/v1/chat/completions"],"capturePolicyId":"<active policy UUID>","pipelineVersion":"pipeline/1","policyVersion":"policy/1","redactionProfile":"strict-default"},"signerKeyId":"<registered signing-key fingerprint>","signingPrivateKey":"<Ed25519 private key>","storage":{"accessKeyId":"<seller storage key ID>","addressingStyle":"path","bucket":"<seller bucket>","endpoint":"https://<seller S3 endpoint>","prefix":"traice","secretAccessKey":"<seller storage secret>","signingRegion":"auto","storageCapabilityProfileId":"<tested profile>"},"upstreamOrigin":"https://api.openai.com"}}
-```
+## Documentation
 
-The `capture` object may be omitted for control-only diagnostics. With capture
-configured, the daemon binds separate random loopback control and gateway ports
-and emits one sanitised ready line. The desktop shell will own creation and
-one-use transfer of this bootstrap material before the first native release.
-
-## Repository roadmap
-
-The implementation sequence is documented in [docs/ROADMAP.md](docs/ROADMAP.md).
-Architecture and privacy boundaries are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md). Please read
-[SECURITY.md](SECURITY.md) before reporting a vulnerability.
+- [Architecture](docs/ARCHITECTURE.md)
+- [Roadmap and release gates](docs/ROADMAP.md)
+- [Telemetry contract](docs/TELEMETRY.md)
+- [Threat model](docs/THREAT_MODEL.md)
+- [Private vulnerability reporting](SECURITY.md)
 
 ## Licence status
 
-The source is public for inspection, but an open-source licence has not yet been
-selected. No `LICENSE` file is included, so normal copyright applies until the
-founder completes the licence and dependency-obligation review. This repository
-does not describe the current spike as a distributable open-source release.
+The source is public for inspection, but no distribution licence has been selected. No `LICENSE` file is included, so normal copyright applies. Do not redistribute binaries or describe this repository as an open-source release until the founder completes the licence and dependency-obligation review.

@@ -1,6 +1,7 @@
 name: ci
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches: [main]
@@ -19,9 +20,19 @@ jobs:
         with: { bun-version: 1.3.5 }
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          components: clippy, rustfmt
+      - run: sudo apt-get update && sudo apt-get install -y libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm test:security
       - run: pnpm --filter @traice/daemon build
+      - run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+      - run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+      - run: pnpm --filter @traice/desktop sidecar
+      - run: pnpm --filter @traice/desktop exec tauri build --debug --no-sign --bundles deb
       - name: Reject imports from reference source trees
         run: '! grep -R --line-number --include="*.ts" --include="*.tsx" -E "from [^;]*(repos/effect|\.\./repos/)" apps packages'

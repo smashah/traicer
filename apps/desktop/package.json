@@ -7,7 +7,8 @@
     "build": "vite build",
     "dev": "vite",
     "lint": "tsc --noEmit",
-    "package": "tauri build",
+    "package": "pnpm sidecar && tauri build",
+    "sidecar": "bun scripts/build-sidecar.ts",
     "test": "bun test --pass-with-no-tests",
     "test:security": "bun test --pass-with-no-tests",
     "typecheck": "tsc --noEmit"

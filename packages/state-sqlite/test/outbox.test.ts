@@ -82,8 +82,49 @@ describe("durable manifest outbox", () => {
     expect(submissions).toBe(1);
     expect(state.counts()).toEqual({ committed: 1, pending: 0 });
     expect(state.lifecycleState(id)).toBe("committed");
+    expect(state.traces(10, 0)[0]).toMatchObject({ state: "committed" });
+    expect(state.eventsAfter(0).some((event) => event.kind === "queue.changed")).toBeTrue();
     expect(await state.reconcile({ submit: async () => (submissions += 1) })).toBe(0);
     expect(submissions).toBe(1);
+    state.close();
+  });
+
+  test("retains temporary delivery objects until their expiry cleanup succeeds", () => {
+    const path = `/tmp/traicer-state-${crypto.randomUUID()}.db`;
+    paths.push(path);
+    const state = openOperationalState(path);
+    const hash = "d".repeat(64);
+    state.recordDeliveryObject(hash, new Date(Date.now() - 1_000).toISOString());
+    expect(state.expiredDeliveryObjects()).toEqual([
+      { ciphertextHash: hash, expiresAt: expect.any(String) },
+    ]);
+    state.markDeliveryObjectDeleted(hash);
+    expect(state.expiredDeliveryObjects()).toEqual([]);
+    state.close();
+  });
+
+  test("persists multipart progress and removes trace references after a tombstone", async () => {
+    const path = `/tmp/traicer-state-${crypto.randomUUID()}.db`;
+    paths.push(path);
+    const state = openOperationalState(path);
+    const id = crypto.randomUUID();
+    await state.createDurableManifestSink({ submit: async () => undefined })
+      .submit({ idempotencyKey: `manifest:${id}`, manifests: [signed(id)] });
+    expect(state.traceObject(id)?.clientManifestId).toBe(id);
+
+    const hash = "e".repeat(64);
+    state.multipartJournal.start(hash, "upload-1");
+    state.multipartJournal.recordPart(hash, 1, '"etag-1"');
+    expect(state.multipartJournal.load(hash)).toEqual({
+      parts: [{ eTag: '"etag-1"', partNumber: 1 }],
+      uploadId: "upload-1",
+    });
+    state.multipartJournal.clear(hash);
+    expect(state.multipartJournal.load(hash)).toBeUndefined();
+
+    state.tombstoneTrace(id, id, "seller_requested");
+    expect(state.traceObject(id)).toBeUndefined();
+    expect(state.counts()).toEqual({ committed: 0, pending: 0 });
     state.close();
   });
 });

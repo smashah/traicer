@@ -16,6 +16,11 @@ export const CaptureBootstrapV1 = Schema.Struct({
     policyVersion: Schema.String.pipe(Schema.minLength(1)),
     redactionProfile: Schema.String.pipe(Schema.minLength(1)),
   }),
+  proxyTls: Schema.optional(Schema.Struct({
+    certificatePem: Schema.String.pipe(Schema.minLength(1)),
+    privateKeyPem: Schema.String.pipe(Schema.minLength(1)),
+    targetHosts: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+  })),
   signerKeyId: Schema.String.pipe(Schema.minLength(1)),
   signingPrivateKey: Schema.String.pipe(Schema.minLength(1)),
   storage: Schema.Struct({

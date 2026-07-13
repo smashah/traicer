@@ -1,1 +1,3 @@
-fn main() { traicer_lib::run(); }
+fn main() {
+    traicer_lib::run();
+}

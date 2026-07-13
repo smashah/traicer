@@ -15,11 +15,17 @@ const concatBytes = (...parts: readonly Uint8Array[]): Uint8Array => {
   return result;
 };
 
-export const bytesToBase64Url = (bytes: Uint8Array): string =>
-  Buffer.from(bytes).toString("base64url");
+export const bytesToBase64Url = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+};
 
-export const base64UrlToBytes = (value: string): Uint8Array =>
-  new Uint8Array(Buffer.from(value, "base64url"));
+export const base64UrlToBytes = (value: string): Uint8Array => {
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+};
 
 export const sha256Hex = async (value: Uint8Array | string): Promise<string> => {
   const bytes = typeof value === "string" ? encoder.encode(value) : value;
@@ -214,4 +220,108 @@ export const verifyBytes = async (
     asArrayBuffer(base64UrlToBytes(signature)),
     asArrayBuffer(bytes)
   );
+};
+
+interface RecipientEnvelopeV1 {
+  readonly ciphertext: string;
+  readonly ephemeralPublicKey: string;
+  readonly nonce: string;
+  readonly salt: string;
+  readonly schema: "traice.recipient-envelope/1";
+}
+
+const deriveRecipientKey = async (
+  privateKey: CryptoKey,
+  publicKey: CryptoKey,
+  salt: Uint8Array,
+  usage: KeyUsage
+) => {
+  const shared = await crypto.subtle.deriveBits(
+    { name: "X25519", public: publicKey },
+    privateKey,
+    256
+  );
+  const material = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {
+      hash: "SHA-256",
+      info: encoder.encode("traice-delivery-envelope-v1"),
+      name: "HKDF",
+      salt: asArrayBuffer(salt),
+    },
+    material,
+    { length: 256, name: "AES-GCM" },
+    false,
+    [usage]
+  );
+};
+
+export const encryptForX25519Recipient = async (
+  recipientPublicKey: string,
+  plaintext: Uint8Array
+): Promise<string> => {
+  const recipient = await crypto.subtle.importKey(
+    "raw",
+    asArrayBuffer(base64UrlToBytes(recipientPublicKey)),
+    "X25519",
+    false,
+    []
+  );
+  const ephemeral = await crypto.subtle.generateKey("X25519", true, ["deriveBits"]);
+  if (!("privateKey" in ephemeral)) throw new Error("X25519 key generation failed");
+  const salt = crypto.getRandomValues(new Uint8Array(32));
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveRecipientKey(ephemeral.privateKey, recipient, salt, "encrypt");
+  const ephemeralPublicKey = bytesToBase64Url(
+    new Uint8Array(await crypto.subtle.exportKey("raw", ephemeral.publicKey))
+  );
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+    {
+      additionalData: encoder.encode(`traice.recipient-envelope/1:${ephemeralPublicKey}`),
+      iv: asArrayBuffer(nonce),
+      name: "AES-GCM",
+    },
+    key,
+    asArrayBuffer(plaintext)
+  ));
+  const envelope: RecipientEnvelopeV1 = {
+    ciphertext: bytesToBase64Url(ciphertext),
+    ephemeralPublicKey,
+    nonce: bytesToBase64Url(nonce),
+    salt: bytesToBase64Url(salt),
+    schema: "traice.recipient-envelope/1",
+  };
+  return bytesToBase64Url(encoder.encode(JSON.stringify(envelope)));
+};
+
+export const decryptFromX25519Recipient = async (
+  recipientPrivateKey: CryptoKey,
+  encodedEnvelope: string
+): Promise<Uint8Array> => {
+  const envelope = JSON.parse(
+    decoder.decode(base64UrlToBytes(encodedEnvelope))
+  ) as RecipientEnvelopeV1;
+  if (envelope.schema !== "traice.recipient-envelope/1") throw new Error("Invalid recipient envelope");
+  const ephemeral = await crypto.subtle.importKey(
+    "raw",
+    asArrayBuffer(base64UrlToBytes(envelope.ephemeralPublicKey)),
+    "X25519",
+    false,
+    []
+  );
+  const key = await deriveRecipientKey(
+    recipientPrivateKey,
+    ephemeral,
+    base64UrlToBytes(envelope.salt),
+    "decrypt"
+  );
+  return new Uint8Array(await crypto.subtle.decrypt(
+    {
+      additionalData: encoder.encode(`traice.recipient-envelope/1:${envelope.ephemeralPublicKey}`),
+      iv: asArrayBuffer(base64UrlToBytes(envelope.nonce)),
+      name: "AES-GCM",
+    },
+    key,
+    asArrayBuffer(base64UrlToBytes(envelope.ciphertext))
+  ));
 };

@@ -11,7 +11,20 @@
   },
   "app": {
     "windows": [{ "label": "main", "title": "Traicer", "width": 420, "height": 520, "visible": false }],
-    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'" }
+    "security": { "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* https://api.traice.market; style-src 'self' 'unsafe-inline'" }
   },
-  "bundle": { "active": false }
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/traicer-daemon"],
+    "targets": "all"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/smashah/traicer/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1OUM1NERCQjA2Njg3NEYKUldSUGgyYXcyMVNjTlI4dThiRzdYZGthQm55QittWFVkNHhQYVJrZ0ZKanNNUkhKNlIvY2lMblgK"
+    }
+  }
 }

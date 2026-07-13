@@ -11,7 +11,14 @@ import type {
   SafeUploadReceipt,
   SignedSafeManifest,
 } from "@traice/domain";
-import { canonicalBytes, canonicalJson, redactExchange } from "@traice/privacy-pipeline";
+import {
+  canonicalBytes,
+  canonicalJson,
+  redactExchange,
+  stripTransportSecrets,
+} from "@traice/privacy-pipeline";
+
+export const sanitizeTransportHeaders = stripTransportSecrets;
 
 export interface SellerObjectStore {
   readonly putEnvelope: (input: {

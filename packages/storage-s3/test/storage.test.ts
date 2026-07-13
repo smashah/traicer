@@ -74,5 +74,15 @@ describe("S3-compatible storage", () => {
     expect(signedUrl).toContain("X-Amz-Signature=");
     await store.deleteEnvelope(ciphertextHash);
     expect(objects.size).toBe(0);
+    const probe = await store.probe();
+    expect(probe.checks).toEqual({
+      capabilityCreate: true,
+      capabilityExpire: true,
+      delete: true,
+      head: true,
+      readIntegrity: true,
+      write: true,
+    });
+    expect(objects.size).toBe(0);
   });
 });

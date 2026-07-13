@@ -1,0 +1,108 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  attestations: write
+  contents: write
+  id-token: write
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            bun_target: bun-darwin-arm64
+            rust_target: aarch64-apple-darwin
+            bundle: app,dmg
+          - os: macos-13
+            bun_target: bun-darwin-x64
+            rust_target: x86_64-apple-darwin
+            bundle: app,dmg
+          - os: ubuntu-24.04
+            bun_target: bun-linux-x64
+            rust_target: x86_64-unknown-linux-gnu
+            bundle: deb,appimage
+          - os: windows-2025
+            bun_target: bun-windows-x64
+            rust_target: x86_64-pc-windows-msvc
+            bundle: nsis,msi
+    runs-on: ${{ matrix.os }}
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.28.1 }
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3.14 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.rust_target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev patchelf
+      - run: pnpm install --frozen-lockfile
+      - name: Compile target sidecar
+        shell: bash
+        run: |
+          extension=""
+          if [[ "${{ runner.os }}" == "Windows" ]]; then extension=".exe"; fi
+          mkdir -p apps/desktop/src-tauri/binaries
+          bun build apps/daemon/src/index.ts --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=${{ matrix.bun_target }} --outfile=apps/desktop/src-tauri/binaries/traicer-daemon-${{ matrix.rust_target }}${extension}
+      - name: Package signed native installer
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          pnpm --filter @traice/desktop exec tauri build --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundle }} --ci --config "{\"version\":\"$version\"}"
+      - name: Generate checksums
+        shell: bash
+        run: |
+          bash apps/desktop/scripts/stage-release-assets.sh ${{ matrix.rust_target }}
+          find apps/desktop/release-assets/${{ matrix.rust_target }} -type f ! -name '*.sig' ! -name 'checksums-*' -print0 | xargs -0 shasum -a 256 > apps/desktop/release-assets/${{ matrix.rust_target }}/checksums-${{ matrix.rust_target }}.txt
+      - uses: anchore/sbom-action@v0
+        with:
+          path: apps/desktop/src-tauri/target/${{ matrix.rust_target }}/release/bundle
+          format: cyclonedx-json
+          output-file: apps/desktop/release-assets/${{ matrix.rust_target }}/sbom-${{ matrix.rust_target }}.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traicer-${{ matrix.rust_target }}
+          path: apps/desktop/release-assets/${{ matrix.rust_target }}
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: apps/desktop/release-assets/${{ matrix.rust_target }}/*
+
+  publish-draft:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: release-artifacts }
+      - name: Create signed updater manifest
+        run: bash apps/desktop/scripts/create-update-manifest.sh release-artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          fail_on_unmatched_files: true
+          files: release-artifacts/**/*
+          generate_release_notes: true

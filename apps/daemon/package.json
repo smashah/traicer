@@ -18,10 +18,15 @@
     "@traice/domain": "workspace:*",
     "@traice/effect-runtime": "workspace:*",
     "@traice/marketplace-client": "workspace:*",
+    "@traice/privacy-pipeline": "workspace:*",
     "@traice/state-sqlite": "workspace:*",
     "@traice/storage-s3": "workspace:*",
     "effect": "catalog:",
     "hono": "catalog:"
   },
-  "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "selfsigned": "^5.5.0",
+    "typescript": "catalog:"
+  }
 }

@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   constantTimeEqual,
+  decryptFromX25519Recipient,
   decryptTraceEnvelope,
   encryptTraceEnvelope,
+  encryptForX25519Recipient,
   generateDeviceSigningKeyPair,
   sha256Hex,
   signBytes,
@@ -55,5 +57,17 @@ describe("crypto known-answer tests", () => {
         new TextEncoder().encode('{"schema":"traice.manifest/2"}')
       )
     ).toBe(false);
+  });
+
+  test("encrypts an opaque delivery capability to an X25519 recipient", async () => {
+    const recipient = await crypto.subtle.generateKey("X25519", true, ["deriveBits"]);
+    if (!("privateKey" in recipient)) throw new Error("Expected an X25519 key pair");
+    const publicKey = await crypto.subtle.exportKey("raw", recipient.publicKey);
+    const encoded = await encryptForX25519Recipient(
+      btoa(String.fromCharCode(...new Uint8Array(publicKey))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, ""),
+      new TextEncoder().encode('{"datasetRoot":"root"}')
+    );
+    expect(new TextDecoder().decode(await decryptFromX25519Recipient(recipient.privateKey, encoded))).toBe('{"datasetRoot":"root"}');
+    expect(encoded).not.toContain("datasetRoot");
   });
 });

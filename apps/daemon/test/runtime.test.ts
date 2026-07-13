@@ -47,6 +47,10 @@ describe("daemon capture runtime", () => {
         if (request.method === "GET" && bytes) {
           return new Response(Uint8Array.from(bytes).buffer);
         }
+        if (request.method === "DELETE") {
+          objects.delete(path);
+          return new Response(null, { status: 204 });
+        }
         return new Response("missing", { status: 404 });
       },
       hostname: "127.0.0.1",
@@ -113,6 +117,7 @@ describe("daemon capture runtime", () => {
           ),
       }
     );
+    await runtime.initialize();
 
     const response = await runtime.gateway.request(
       "http://127.0.0.1/openai/local-adapter-capability/v1/responses",

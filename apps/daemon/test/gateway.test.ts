@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import type { ObservedProviderExchange } from "@traice/domain";
 
-import { createGatewayScheduler, createOpenAiGateway } from "../src/gateway";
+import {
+  createAnthropicGateway,
+  createGatewayScheduler,
+  createOpenAiGateway,
+} from "../src/gateway";
 
 describe("OpenAI-compatible fixed-upstream gateway", () => {
   test("preserves provider response and captures an eligible synthetic exchange", async () => {
@@ -92,5 +96,54 @@ describe("OpenAI-compatible fixed-upstream gateway", () => {
         })
       ).status
     ).toBe(404);
+  });
+});
+
+describe("Anthropic fixed-upstream gateway", () => {
+  test("preserves Messages streaming and captures sanitised usage", async () => {
+    const scheduler = createGatewayScheduler();
+    const captures: ObservedProviderExchange[] = [];
+    let forwarded: Request | undefined;
+    const app = createAnthropicGateway({
+      adapterCapability: "anthropic-local-capability",
+      capture: async (exchange) => {
+        captures.push(exchange);
+      },
+      captureEnabled: () => true,
+      client: "claude-code",
+      fetchUpstream: async (input, init) => {
+        forwarded = new Request(input, init);
+        return new Response(
+          'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":7,"output_tokens":0}}}\n\nevent: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":4}}\n\n',
+          { headers: { "content-type": "text/event-stream" }, status: 200 }
+        );
+      },
+      scheduler,
+      upstreamOrigin: "https://api.anthropic.com",
+    });
+    const response = await app.request(
+      "http://127.0.0.1/anthropic/anthropic-local-capability/v1/messages",
+      {
+        body: JSON.stringify({ messages: [{ content: "synthetic", role: "user" }], model: "claude-test", stream: true }),
+        headers: {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "provider-secret",
+        },
+        method: "POST",
+      }
+    );
+    await response.text();
+    await scheduler.drain();
+
+    expect(forwarded?.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(forwarded?.headers.get("x-api-key")).toBe("provider-secret");
+    expect(captures).toHaveLength(1);
+    expect(captures[0]).toMatchObject({
+      adapter: "anthropic-messages/1",
+      model: "claude-test",
+      provider: "anthropic",
+    });
+    expect(captures[0]?.requestHeaders).not.toHaveProperty("x-api-key");
   });
 });

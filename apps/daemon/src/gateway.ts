@@ -1,13 +1,9 @@
-import type { ObservedProviderExchange } from "@traice/domain";
+import { sanitizeTransportHeaders } from "@traice/capture-core";
+import type { CaptureProvider, ObservedProviderExchange } from "@traice/domain";
 import { Hono } from "hono";
 
-export type GatewayFetch = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
+export type GatewayFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-const capturedPaths = new Set(["/v1/chat/completions", "/v1/responses"]);
-const forwardOnlyPaths = new Set(["/v1/embeddings", "/v1/models"]);
 const hopByHopHeaders = new Set([
   "connection",
   "keep-alive",
@@ -30,9 +26,7 @@ const safeHeaders = (headers: Headers): Headers => {
 };
 
 const parseBody = (text: string): unknown => {
-  if (text.length === 0) {
-    return null;
-  }
+  if (text.length === 0) return null;
   try {
     return JSON.parse(text);
   } catch {
@@ -44,7 +38,7 @@ const parseBody = (text: string): unknown => {
         try {
           return JSON.parse(data) as unknown;
         } catch {
-          return data;
+          return { unparsed: true };
         }
       });
     return events.length > 0 ? { events } : { unparsed: true };
@@ -52,10 +46,30 @@ const parseBody = (text: string): unknown => {
 };
 
 const recordFromObject = (value: unknown): Readonly<Record<string, unknown>> =>
-  value && typeof value === "object" ? (value as Readonly<Record<string, unknown>>) : {};
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : {};
 
 const numberFrom = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0;
+
+const usageFrom = (value: unknown, depth = 0): Readonly<Record<string, unknown>> => {
+  if (depth > 4) return {};
+  const record = recordFromObject(value);
+  const usage = recordFromObject(record.usage);
+  if (Object.keys(usage).length > 0) return usage;
+  const messageUsage = recordFromObject(recordFromObject(record.message).usage);
+  if (Object.keys(messageUsage).length > 0) return messageUsage;
+  const responseUsage = recordFromObject(recordFromObject(record.response).usage);
+  if (Object.keys(responseUsage).length > 0) return responseUsage;
+  if (Array.isArray(record.events)) {
+    for (const event of [...record.events].reverse()) {
+      const found = usageFrom(event, depth + 1);
+      if (Object.keys(found).length > 0) return found;
+    }
+  }
+  return {};
+};
 
 export interface GatewayScheduler {
   readonly drain: () => Promise<void>;
@@ -85,26 +99,41 @@ export interface GatewayDependencies {
   readonly upstreamOrigin: string;
 }
 
-export const createOpenAiGateway = (dependencies: GatewayDependencies) => {
+interface ProviderGatewayConfig {
+  readonly adapterForPath: (path: string) => string;
+  readonly capturedPaths: ReadonlySet<string>;
+  readonly forwardOnlyPaths: ReadonlySet<string>;
+  readonly prefix: string;
+  readonly provider: CaptureProvider;
+}
+
+const createProviderGateway = (
+  dependencies: GatewayDependencies,
+  config: ProviderGatewayConfig
+) => {
   const upstream = new URL(dependencies.upstreamOrigin);
-  if (upstream.protocol !== "https:" && upstream.hostname !== "127.0.0.1" && upstream.hostname !== "localhost") {
+  if (
+    upstream.protocol !== "https:" &&
+    upstream.hostname !== "127.0.0.1" &&
+    upstream.hostname !== "localhost"
+  ) {
     throw new Error("The fixed model-provider upstream must use HTTPS outside loopback tests");
   }
   const send = dependencies.fetchUpstream ?? globalThis.fetch;
   const app = new Hono();
 
-  app.all("/openai/:capability/v1/*", async (context) => {
+  app.all(`/${config.prefix}/:capability/v1/*`, async (context) => {
     if (context.req.param("capability") !== dependencies.adapterCapability) {
       return context.json({ code: "INVALID_ADAPTER_CAPABILITY" }, 401);
     }
     const providerPath = context.req.path.replace(
-      `/openai/${dependencies.adapterCapability}`,
+      `/${config.prefix}/${dependencies.adapterCapability}`,
       ""
     );
     const isModelLookup = providerPath.startsWith("/v1/models/");
-    const captureEligible = capturedPaths.has(providerPath) && context.req.method === "POST";
+    const captureEligible = config.capturedPaths.has(providerPath) && context.req.method === "POST";
     const forwardOnly =
-      forwardOnlyPaths.has(providerPath) ||
+      config.forwardOnlyPaths.has(providerPath) ||
       isModelLookup ||
       (providerPath === "/v1/models" && context.req.method === "GET");
     if (!captureEligible && !forwardOnly) {
@@ -122,31 +151,29 @@ export const createOpenAiGateway = (dependencies: GatewayDependencies) => {
 
     if (captureEligible && dependencies.captureEnabled()) {
       const responseCopy = upstreamResponse.clone();
+      const safeRequestHeaders = sanitizeTransportHeaders(
+        Object.fromEntries(context.req.raw.headers.entries())
+      );
       const requestPayload = parseBody(requestBody);
       const requestRecord = recordFromObject(requestPayload);
       const model = typeof requestRecord.model === "string" ? requestRecord.model : "unknown";
-      const traceId = crypto.randomUUID();
       dependencies.scheduler.schedule(
         (async () => {
           const responsePayload = parseBody(await responseCopy.text());
-          const responseRecord = recordFromObject(responsePayload);
-          const usage = recordFromObject(responseRecord.usage);
+          const usage = usageFrom(responsePayload);
           await dependencies.capture({
-            adapter:
-              providerPath === "/v1/responses"
-                ? "openai-responses/1"
-                : "openai-chat-completions/1",
+            adapter: config.adapterForPath(providerPath),
             capturedAt: new Date().toISOString(),
             client: dependencies.client,
             method: "POST",
             model,
             path: providerPath,
-            provider: "openai",
+            provider: config.provider,
             requestBody: requestPayload,
-            requestHeaders: Object.fromEntries(context.req.raw.headers.entries()),
+            requestHeaders: safeRequestHeaders,
             responseBody: responsePayload,
             responseStatus: upstreamResponse.status,
-            traceId,
+            traceId: crypto.randomUUID(),
             usage: {
               inputTokens: numberFrom(usage.input_tokens ?? usage.prompt_tokens),
               outputTokens: numberFrom(usage.output_tokens ?? usage.completion_tokens),
@@ -165,3 +192,22 @@ export const createOpenAiGateway = (dependencies: GatewayDependencies) => {
 
   return app;
 };
+
+export const createOpenAiGateway = (dependencies: GatewayDependencies) =>
+  createProviderGateway(dependencies, {
+    adapterForPath: (path) =>
+      path === "/v1/responses" ? "openai-responses/1" : "openai-chat-completions/1",
+    capturedPaths: new Set(["/v1/chat/completions", "/v1/responses"]),
+    forwardOnlyPaths: new Set(["/v1/embeddings", "/v1/models"]),
+    prefix: "openai",
+    provider: "openai",
+  });
+
+export const createAnthropicGateway = (dependencies: GatewayDependencies) =>
+  createProviderGateway(dependencies, {
+    adapterForPath: () => "anthropic-messages/1",
+    capturedPaths: new Set(["/v1/messages"]),
+    forwardOnlyPaths: new Set(["/v1/messages/count_tokens", "/v1/models"]),
+    prefix: "anthropic",
+    provider: "anthropic",
+  });
