@@ -6,13 +6,13 @@ This repository contains a pre-release client, not an endorsed installer. OpenAI
 
 ## CLI release target
 
-The first distribution target is the `traicer` npm CLI; native DMG and Windows installers follow each published CLI release. The guided initializer creates seller configuration, protects generated device secrets with [Varlock](https://varlock.dev/), and can scaffold Cloudflare R2 or AWS S3 through [Alchemy v2](https://v2.alchemy.run/) while also supporting an existing S3-compatible service.
+The first distribution target is the `@traice-market/traicer` npm CLI; native DMG and Windows installers follow each published CLI release. The guided initializer creates seller configuration, protects generated device secrets with [Varlock](https://varlock.dev/), and can scaffold Cloudflare R2 or AWS S3 through [Alchemy v2](https://v2.alchemy.run/) while also supporting an existing S3-compatible service.
 
 ```sh
-bunx traicer init --storage cloudflare-r2 --account-id <account-id>
+bunx @traice-market/traicer init --storage cloudflare-r2 --account-id <account-id>
 # add the marketplace and storage credentials, then encrypt them in place
-bunx traicer secrets
-bunx traicer start
+bunx @traice-market/traicer secrets
+bunx @traice-market/traicer start
 ```
 
 Storage deployment requires an explicit `--deploy` flag or interactive confirmation. The initializer never treats `--yes` as permission to create cloud resources, and it writes generated private values only as encrypted Varlock references.
