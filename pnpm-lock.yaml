@@ -48,9 +48,31 @@ importers:
       '@types/bun':
         specifier: 'catalog:'
         version: 1.3.14
+      '@varlock/bumpy':
+        specifier: 1.18.1
+        version: 1.18.1
       turbo:
         specifier: 'catalog:'
         version: 2.10.4
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
+  apps/cli:
+    dependencies:
+      varlock:
+        specifier: 1.10.0
+        version: 1.10.0
+    devDependencies:
+      '@traice/api-contract':
+        specifier: workspace:*
+        version: link:../../packages/api-contract
+      '@traice/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@types/bun':
+        specifier: 'catalog:'
+        version: 1.3.14
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1222,6 +1244,10 @@ packages:
   '@types/react@19.2.17':
     resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
 
+  '@varlock/bumpy@1.18.1':
+    resolution: {integrity: sha512-u6PHUr+laAgWWm/c3wdExHBCcvYkkTb+KsiRNR9GCFIbCDrCN9CyOZO/crtRZ5u4KWMKtUTeA7U/s+AA0k7Dcg==}
+    hasBin: true
+
   '@vitejs/plugin-react@5.2.0':
     resolution: {integrity: sha512-YmKkfhOAi3wsB1PhJq5Scj3GXMn3WvtQ/JC0xoopuHoXSdmtdStOpFrYaT1kie2YgFBcIe64ROzMYRjCrYOdYw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1632,6 +1658,11 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  varlock@1.10.0:
+    resolution: {integrity: sha512-o4YahQPmNFGjnYDkBYNWffMQBoQqrlzkBS473k4rFsbYfHH3J627/+62gfPYMTqhsg9HF4qC8ogtOR1vJSZUPA==}
+    engines: {bun: '>=1.3.3', node: '>=22.3.0'}
+    hasBin: true
 
   vite@8.1.4:
     resolution: {integrity: sha512-bTT9PsdWO+MQMNG9ZXIP/qM9wGh37DFxTV/sPq9cFpHr3w4jkgef032PkAL9jAqhk3Nz8NQw3O8n6/xFkqO4QQ==}
@@ -2538,6 +2569,8 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
+  '@varlock/bumpy@1.18.1': {}
+
   '@vitejs/plugin-react@5.2.0(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(tsx@4.23.1))':
     dependencies:
       '@babel/core': 7.29.7
@@ -2891,6 +2924,8 @@ snapshots:
       browserslist: 4.28.6
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  varlock@1.10.0: {}
 
   vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(tsx@4.23.1):
     dependencies:

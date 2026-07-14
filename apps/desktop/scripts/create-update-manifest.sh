@@ -3,7 +3,7 @@ set -euo pipefail
 
 root=${1:-release-artifacts}
 tag=${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}
-version=${tag#v}
+version=${tag##*@}
 repository=${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}
 published_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

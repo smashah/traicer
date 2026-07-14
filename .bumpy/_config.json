@@ -1,0 +1,28 @@
+{
+  "baseBranch": "main",
+  "access": "public",
+  "changelog": [
+    "github",
+    {
+      "repo": "smashah/traicer",
+      "internalAuthors": ["smashah"],
+      "includeCommitLink": true
+    }
+  ],
+  "fixed": [
+    ["@traice/traicer", "@traice/desktop"]
+  ],
+  "include": ["@traice/traicer", "@traice/desktop"],
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  },
+  "publish": {
+    "provenance": true
+  },
+  "versionPr": {
+    "branch": "bumpy/version-packages",
+    "title": "Release Traicer",
+    "preamble": "The CLI is the primary release artifact. Desktop installers are built after the CLI package and GitHub release are published."
+  }
+}

@@ -4,6 +4,19 @@ Traicer is the public, seller-operated local client for [Traice Market](https://
 
 This repository contains a pre-release client, not an endorsed installer. OpenAI Responses/Chat Completions and Anthropic Messages gateways, an authenticated explicit HTTP/HTTPS proxy, selective exact-host TLS capture with opt-in current-user CA trust, the Tauri desktop shell, OS credential vault, resumable storage transfer, deletion/tombstones, durable marketplace work, direct buyer-encrypted delivery, and signed Tauri updates are implemented. A distribution licence, production Apple/Windows signing and Apple notarisation, published update-feed verification, clean-machine release verification, live compatibility evidence, and external security review are still required before an endorsed release.
 
+## CLI release target
+
+The first distribution target is the `@traice/traicer` npm CLI; native DMG and Windows installers follow each published CLI release. The guided initializer creates seller configuration, protects generated device secrets with [Varlock](https://varlock.dev/), and can scaffold Cloudflare R2 or AWS S3 through [Alchemy v2](https://v2.alchemy.run/) while also supporting an existing S3-compatible service.
+
+```sh
+bunx @traice/traicer init --storage cloudflare-r2 --account-id <account-id>
+# add the marketplace and storage credentials, then encrypt them in place
+bunx @traice/traicer secrets
+bunx @traice/traicer start
+```
+
+Storage deployment requires an explicit `--deploy` flag or interactive confirmation. The initializer never treats `--yes` as permission to create cloud resources, and it writes generated private values only as encrypted Varlock references.
+
 ## Trust boundary
 
 - Provider traffic is forwarded through a fixed upstream and exact method/path allowlist; capture persistence fails closed while provider forwarding fails open.
@@ -51,11 +64,12 @@ cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
 cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
 ```
 
-CI also compiles the native daemon, creates an unsigned debug Linux package, and rejects imports from reference source trees. Tagged-release CI targets macOS arm64/x64, Linux x64, and Windows x64, then prepares checksums, CycloneDX SBOMs, provenance attestations, and a draft GitHub release.
+CI also compiles the native daemon, creates an unsigned debug Linux package, and rejects imports from reference source trees. Bumpy generates package versions and changelogs, publishes the CLI with npm provenance, and creates the GitHub release before the desktop workflow builds and attaches signed native installers.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Release workflow](docs/RELEASING.md)
 - [Roadmap and release gates](docs/ROADMAP.md)
 - [Telemetry contract](docs/TELEMETRY.md)
 - [Threat model](docs/THREAT_MODEL.md)

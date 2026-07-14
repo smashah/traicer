@@ -12,11 +12,14 @@
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
     "package": "turbo run package",
+    "release:check": "bumpy ci check",
+    "release:status": "bumpy status",
     "test": "turbo run test",
     "test:security": "turbo run test:security",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@varlock/bumpy": "1.18.1",
     "@types/bun": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:"
