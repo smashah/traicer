@@ -48,6 +48,7 @@ export interface CapturePolicyV1 {
   readonly redactionProfile: string;
   readonly allowedMethods: readonly ["POST"];
   readonly allowedPaths: readonly string[];
+  readonly successfulResponsesOnly: boolean;
 }
 
 export interface ObservedProviderExchange {

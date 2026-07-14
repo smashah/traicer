@@ -100,6 +100,37 @@ describe("OpenAI-compatible fixed-upstream gateway", () => {
 });
 
 describe("Anthropic fixed-upstream gateway", () => {
+  test("removes upstream compression metadata after Bun decodes the response body", async () => {
+    const scheduler = createGatewayScheduler();
+    const app = createAnthropicGateway({
+      adapterCapability: "anthropic-local-capability",
+      capture: async () => undefined,
+      captureEnabled: () => true,
+      client: "claude-code",
+      fetchUpstream: async () => new Response("decoded provider response", {
+        headers: {
+          "content-encoding": "gzip",
+          "content-length": "42",
+          "content-type": "application/json",
+        },
+      }),
+      scheduler,
+      upstreamOrigin: "https://api.anthropic.com",
+    });
+    const response = await app.request(
+      "http://127.0.0.1/anthropic/anthropic-local-capability/v1/messages",
+      {
+        body: JSON.stringify({ messages: [], model: "claude-test" }),
+        method: "POST",
+      }
+    );
+
+    expect(response.headers.get("content-encoding")).toBeNull();
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(await response.text()).toBe("decoded provider response");
+    await scheduler.drain();
+  });
+
   test("preserves Messages streaming and captures sanitised usage", async () => {
     const scheduler = createGatewayScheduler();
     const captures: ObservedProviderExchange[] = [];

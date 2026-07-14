@@ -25,6 +25,16 @@ const safeHeaders = (headers: Headers): Headers => {
   return result;
 };
 
+const decodedResponseHeaders = (headers: Headers): Headers => {
+  const result = safeHeaders(headers);
+  // Bun's fetch decodes compressed upstream bodies before exposing them. Keeping
+  // the upstream encoding or length makes clients decompress or truncate the
+  // already-decoded stream.
+  result.delete("content-encoding");
+  result.delete("content-length");
+  return result;
+};
+
 const parseBody = (text: string): unknown => {
   if (text.length === 0) return null;
   try {
@@ -184,7 +194,7 @@ const createProviderGateway = (
     }
 
     return new Response(upstreamResponse.body, {
-      headers: safeHeaders(upstreamResponse.headers),
+      headers: decodedResponseHeaders(upstreamResponse.headers),
       status: upstreamResponse.status,
       statusText: upstreamResponse.statusText,
     });

@@ -77,6 +77,7 @@ export const createCaptureRuntime = (
     policyVersion: bootstrap.policy.policyVersion,
     redactionProfile: bootstrap.policy.redactionProfile,
     schema: "traice.capture-policy/1",
+    successfulResponsesOnly: true,
   };
   const engine = createCaptureEngine(
     {

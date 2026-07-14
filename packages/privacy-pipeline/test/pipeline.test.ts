@@ -17,6 +17,7 @@ const policy: CapturePolicyV1 = {
   policyVersion: "policy/1",
   redactionProfile: "strict-default",
   schema: "traice.capture-policy/1",
+  successfulResponsesOnly: true,
 };
 
 const observed: ObservedProviderExchange = {
@@ -64,6 +65,12 @@ describe("privacy pipeline", () => {
 
   test("rejects capture outside the exact method/path policy", () => {
     expect(() => redactExchange({ ...observed, path: "/v1/files" }, policy)).toThrow(
+      "Capture policy rejected"
+    );
+  });
+
+  test("rejects provider errors when inventory is restricted to successful responses", () => {
+    expect(() => redactExchange({ ...observed, responseStatus: 429 }, policy)).toThrow(
       "Capture policy rejected"
     );
   });

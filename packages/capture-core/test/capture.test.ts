@@ -23,6 +23,7 @@ const policy: CapturePolicyV1 = {
   policyVersion: "policy/1",
   redactionProfile: "strict-default",
   schema: "traice.capture-policy/1",
+  successfulResponsesOnly: true,
 };
 
 describe("capture engine", () => {

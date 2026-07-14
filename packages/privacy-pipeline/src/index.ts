@@ -132,9 +132,11 @@ export const redactExchange = (
 ): { readonly report: RedactionReport; readonly trace: CanonicalTraceV1 } => {
   if (
     !policy.allowedMethods.includes(observed.method) ||
-    !policy.allowedPaths.includes(observed.path)
+    !policy.allowedPaths.includes(observed.path) ||
+    (policy.successfulResponsesOnly &&
+      (observed.responseStatus < 200 || observed.responseStatus >= 300))
   ) {
-    throw new Error("Capture policy rejected this provider route");
+    throw new Error("Capture policy rejected this provider exchange");
   }
 
   const replacementCounts: Record<string, number> = {};
