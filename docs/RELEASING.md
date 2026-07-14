@@ -25,6 +25,14 @@ The `release metadata` action runs `bumpy ci check` on pull requests. It reports
 
 The release tag is Bumpy's package tag, for example `@traice-market/traicer@0.1.0`. Do not create `v0.1.0` tags or hand-create a second GitHub release.
 
+## Choosing a release asset
+
+The first-install packages are the two architecture-specific DMGs, the Windows setup EXE or MSI, and the Linux DEB. The macOS `.app.tar.gz` files and `latest.json` are Tauri updater payloads rather than manual installers.
+
+Checksums verify the first-install and updater payloads, SBOM files describe bundled dependencies, and provenance attestations are available through GitHub. Loose `.sig` files are updater inputs; `latest.json` carries the signatures consumed by the desktop updater. GitHub also displays automatic source ZIP and tar archives, which are not installable desktop builds.
+
+The current workflow may expose per-target checksum, SBOM, and signature files until the public asset set is consolidated. Release notes must identify the correct installer for each platform so users do not have to infer it from build-system filenames.
+
 ## One-time repository and registry setup
 
 - The initial public package is marked `UNLICENSED`, matching the repository's current all-rights-reserved status. Selecting an open-source or commercial distribution licence remains a separate founder decision; update the package metadata and add `LICENSE` before describing the release as open source or granting redistribution rights.
