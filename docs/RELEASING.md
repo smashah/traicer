@@ -27,7 +27,7 @@ The release tag is Bumpy's package tag, for example `@traice/traicer@0.1.0`. Do 
 
 ## One-time repository and registry setup
 
-- Select the distribution licence and commit `LICENSE`. Publication deliberately fails without it because this repository currently grants no redistribution rights.
+- The initial public package is marked `UNLICENSED`, matching the repository's current all-rights-reserved status. Selecting an open-source or commercial distribution licence remains a separate founder decision; update the package metadata and add `LICENSE` before describing the release as open source or granting redistribution rights.
 - Create or verify the public npm package `@traice/traicer` under the `@traice` scope. Configure npm trusted publishing for repository `smashah/traicer`, workflow `release.yml`, and GitHub environment `publish`. The first publish cannot use npm staged publishing.
 - Create protected GitHub environments named `publish` and `release`. Require approval for `release` if desktop signing should remain a separate operator decision.
 - Add `BUMPY_GH_TOKEN` as a repository Actions secret using a fine-grained bot PAT or GitHub App token with repository contents and pull-request write access. Bumpy uses it to make version-PR and release events trigger downstream workflows; releases created with the default `GITHUB_TOKEN` do not trigger the desktop workflow.
