@@ -37,7 +37,6 @@ add_platform() {
 
 add_platform darwin-aarch64 aarch64-apple-darwin '*.app.tar.gz'
 add_platform darwin-x86_64 x86_64-apple-darwin '*.app.tar.gz'
-add_platform linux-x86_64 x86_64-unknown-linux-gnu '*.AppImage'
 add_platform windows-x86_64 x86_64-pc-windows-msvc '*-setup.exe'
 
 jq . <<<"$manifest" > "$root/latest.json"

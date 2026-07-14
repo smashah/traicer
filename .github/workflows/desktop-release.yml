@@ -53,7 +53,7 @@ jobs:
             bun_target: bun-darwin-arm64
             rust_target: aarch64-apple-darwin
             bundle: app,dmg
-          - os: macos-13
+          - os: macos-15-intel
             bun_target: bun-darwin-x64
             rust_target: x86_64-apple-darwin
             bundle: app,dmg
@@ -64,7 +64,7 @@ jobs:
           - os: ubuntu-24.04
             bun_target: bun-linux-x64
             rust_target: x86_64-unknown-linux-gnu
-            bundle: deb,appimage
+            bundle: deb
     runs-on: ${{ matrix.os }}
     environment: release
     permissions:
@@ -121,9 +121,36 @@ jobs:
         run: pnpm --filter @traice/desktop exec tauri build --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundle }} --ci --config '{"version":"${{ needs.release-context.outputs.version }}","bundle":{"icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]}}'
       - name: Generate checksums
         shell: bash
+        env:
+          CHECKSUM_ROOT: apps/desktop/release-assets/${{ matrix.rust_target }}
+          CHECKSUM_OUTPUT: apps/desktop/release-assets/${{ matrix.rust_target }}/checksums-${{ matrix.rust_target }}.txt
         run: |
           bash apps/desktop/scripts/stage-release-assets.sh ${{ matrix.rust_target }}
-          find apps/desktop/release-assets/${{ matrix.rust_target }} -type f ! -name '*.sig' ! -name 'checksums-*' -print0 | xargs -0 shasum -a 256 > apps/desktop/release-assets/${{ matrix.rust_target }}/checksums-${{ matrix.rust_target }}.txt
+          node <<'NODE'
+          const { createHash } = require('node:crypto');
+          const { readdirSync, readFileSync, statSync, writeFileSync } = require('node:fs');
+          const { basename, join, relative, sep } = require('node:path');
+
+          const root = process.env.CHECKSUM_ROOT;
+          const output = process.env.CHECKSUM_OUTPUT;
+          const files = [];
+
+          function collect(directory) {
+            for (const entry of readdirSync(directory).sort()) {
+              const path = join(directory, entry);
+              if (statSync(path).isDirectory()) collect(path);
+              else if (!entry.endsWith('.sig') && !basename(entry).startsWith('checksums-')) files.push(path);
+            }
+          }
+
+          collect(root);
+          const checksums = files.map((path) => {
+            const digest = createHash('sha256').update(readFileSync(path)).digest('hex');
+            const name = relative(root, path).split(sep).join('/');
+            return `${digest}  ${name}`;
+          });
+          writeFileSync(output, `${checksums.join('\n')}\n`);
+          NODE
       - uses: anchore/sbom-action@v0
         with:
           path: apps/desktop/src-tauri/target/${{ matrix.rust_target }}/release/bundle
@@ -145,7 +172,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release-context.outputs.tag }}
+          ref: ${{ github.sha }}
       - uses: actions/download-artifact@v4
         with:
           path: release-artifacts

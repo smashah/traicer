@@ -1,6 +1,6 @@
 # Release workflow
 
-Traicer releases the CLI first. Bumpy publishes `@traice-market/traicer` to npm, writes its changelog, creates the `@traice-market/traicer@<version>` tag, and publishes the matching GitHub release. That published release starts the lower-priority desktop workflow, which builds and attaches DMG, EXE/MSI, AppImage, and DEB artifacts without republishing the CLI. Tauri updater artifacts are signed; operating-system code signing and notarisation are applied only when the corresponding platform credentials are configured.
+Traicer releases the CLI first. Bumpy publishes `@traice-market/traicer` to npm, writes its changelog, creates the `@traice-market/traicer@<version>` tag, and publishes the matching GitHub release. That published release starts the lower-priority desktop workflow, which builds and attaches DMG, EXE/MSI, and DEB artifacts without republishing the CLI. Tauri updater artifacts for macOS and Windows are signed; the Linux DEB is a manual-install preview, and operating-system code signing and notarisation are applied only when the corresponding platform credentials are configured.
 
 ## Preparing a change
 
