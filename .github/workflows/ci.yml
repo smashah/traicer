@@ -37,9 +37,9 @@ jobs:
       - run: pnpm test
       - run: pnpm test:security
       - run: pnpm --filter @traice/daemon build
+      - run: pnpm --filter @traice/desktop sidecar
       - run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
       - run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
-      - run: pnpm --filter @traice/desktop sidecar
       - run: pnpm --filter @traice/desktop exec tauri build --debug --no-sign --bundles deb
       - name: Reject imports from reference source trees
         run: '! grep -R --line-number --include="*.ts" --include="*.tsx" -E "from [^;]*(repos/effect|\.\./repos/)" apps packages'
