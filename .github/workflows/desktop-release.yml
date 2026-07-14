@@ -178,7 +178,7 @@ jobs:
           path: release-artifacts
       - name: Create signed updater manifest
         env:
-          GITHUB_REF_NAME: ${{ needs.release-context.outputs.tag }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag }}
         run: bash apps/desktop/scripts/create-update-manifest.sh release-artifacts
       - name: Attach installers to the CLI release
         env:
