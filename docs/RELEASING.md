@@ -18,10 +18,10 @@ The `release metadata` action runs `bumpy ci check` on pull requests. It reports
 
 ## Automated release sequence
 
-1. **Plan on `main`.** `.github/workflows/release.yml` runs `bumpy ci plan`. Pending bump files select `version-pr`; versioned packages that are not on npm select `publish`; otherwise the workflow stops.
+1. **Verify and plan on `main`.** `.github/workflows/release.yml` runs the full reusable CI suite for the exact commit before `bumpy ci plan`. Pending bump files select `version-pr`; versioned packages that are not on npm select `publish`; otherwise the workflow stops.
 2. **Merge the version PR.** Bumpy opens or updates `bumpy/version-packages`, consumes the bump files, updates both package versions, and generates `apps/cli/CHANGELOG.md`. Review the generated versions and changelog, then merge it normally.
 3. **Publish the CLI.** The next `main` run tests, typechecks, and builds `@traice/traicer`, requires `LICENSE`, publishes through npm trusted publishing with provenance, pushes the package tag, and creates the GitHub release.
-4. **Attach desktop installers.** The published package release starts `.github/workflows/desktop-release.yml`. Its matrix builds signed installers, checksums, SBOMs, provenance attestations, and the signed updater manifest, then uploads them to the existing CLI release. A failed desktop run can be retried with `workflow_dispatch` and the existing package tag; npm is not touched.
+4. **Attach desktop installers.** The published package release starts `.github/workflows/desktop-release.yml`. It re-runs the full CI suite against that exact package tag before its matrix builds signed installers, checksums, SBOMs, provenance attestations, and the signed updater manifest, then uploads them to the existing CLI release. A failed desktop run can be retried with `workflow_dispatch` and the existing package tag; npm is not touched.
 
 The release tag is Bumpy's package tag, for example `@traice/traicer@0.1.0`. Do not create `v0.1.0` tags or hand-create a second GitHub release.
 

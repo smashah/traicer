@@ -2,6 +2,11 @@ name: ci
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Git ref or SHA to verify
+        required: false
+        type: string
   pull_request:
   push:
     branches: [main]
@@ -14,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: pnpm/action-setup@v4
         with: { version: 10.28.1 }
       - uses: oven-sh/setup-bun@v2

@@ -39,6 +39,14 @@ const requiredSecret = (name: string): string => {
   return value;
 };
 
+export const daemonEnvironment = (environment: NodeJS.ProcessEnv): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(environment).filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined && entry[0] !== "__VARLOCK_ENV" && !entry[0].startsWith("TRAICER_")
+    )
+  );
+
 export const readTraicerConfig = async (directory: string): Promise<TraicerConfig> => {
   const raw = JSON.parse(await readFile(resolve(directory, "traicer.config.json"), "utf8")) as TraicerConfig;
   if (raw.schema !== "traicer.config/1") throw new Error("Unsupported Traicer config schema");

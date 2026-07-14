@@ -36,6 +36,7 @@ const envSchema = `# Traicer runtime secrets — values belong in .env.local or 
 
 const infraPackage = `${JSON.stringify({
   name: "traicer-storage-infra",
+  packageManager: "pnpm@10.28.1",
   private: true,
   scripts: { alchemy: "alchemy" },
   dependencies: {
@@ -45,6 +46,8 @@ const infraPackage = `${JSON.stringify({
     effect: "4.0.0-beta.98",
   },
 }, null, 2)}\n`;
+
+const infraWorkspace = `onlyBuiltDependencies:\n  - msgpackr-extract\n  - workerd\nminimumReleaseAgeExclude:\n  - '@effect/platform-bun@4.0.0-beta.98'\n  - '@effect/platform-node@4.0.0-beta.98'\n  - '@effect/platform-node-shared@4.0.0-beta.98'\n  - 'effect@4.0.0-beta.98'\n`;
 
 const alchemyStack = (storage: StorageProvider, bucket: string): string | undefined => {
   if (storage === "existing-s3") return undefined;
@@ -146,6 +149,7 @@ export const createScaffold = async (
   await Promise.all([
     writeFile(resolve(infrastructureDirectory, "package.json"), infraPackage, { flag: "wx" }),
     writeFile(resolve(infrastructureDirectory, "alchemy.run.ts"), stack, { flag: "wx" }),
+    writeFile(resolve(infrastructureDirectory, "pnpm-workspace.yaml"), infraWorkspace, { flag: "wx" }),
   ]);
   return { config, infrastructureDirectory };
 };

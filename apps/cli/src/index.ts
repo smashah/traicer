@@ -5,7 +5,13 @@ import { createInterface } from "node:readline/promises";
 
 import packageJson from "../package.json" with { type: "json" };
 
-import { createBootstrap, readTraicerConfig, type Provider, type StorageProvider } from "./config";
+import {
+  createBootstrap,
+  daemonEnvironment,
+  readTraicerConfig,
+  type Provider,
+  type StorageProvider,
+} from "./config";
 import { createScaffold, encryptWithVarlock, type InitOptions, varlockCommand } from "./scaffold";
 
 const args = process.argv.slice(2);
@@ -114,6 +120,7 @@ const startResolved = async () => {
   const daemonPath = resolve(import.meta.dir, "daemon.mjs");
   const child = Bun.spawn([process.execPath, daemonPath], {
     cwd: directory,
+    env: daemonEnvironment(process.env),
     stderr: "inherit",
     stdin: "pipe",
     stdout: "inherit",
