@@ -10,9 +10,9 @@
     }
   ],
   "fixed": [
-    ["@traice/traicer", "@traice/desktop"]
+    ["traicer", "@traice/desktop"]
   ],
-  "include": ["@traice/traicer", "@traice/desktop"],
+  "include": ["traicer", "@traice/desktop"],
   "privatePackages": {
     "version": true,
     "tag": false

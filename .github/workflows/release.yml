@@ -86,9 +86,9 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @traice/traicer test
-      - run: pnpm --filter @traice/traicer typecheck
-      - run: pnpm --filter @traice/traicer build
+      - run: pnpm --filter traicer test
+      - run: pnpm --filter traicer typecheck
+      - run: pnpm --filter traicer build
       - name: Use an npm version that supports trusted publishing
         run: npm install --global npm@latest
       - run: pnpm exec bumpy ci release --expect-mode publish
