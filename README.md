@@ -1,80 +1,96 @@
 # Traicer
 
-Traicer is the public, seller-operated local client for [Traice Market](https://traice.market). It captures only explicitly configured AI-provider traffic, redacts and canonicalises accepted exchanges locally, encrypts them into seller-owned S3-compatible storage, and sends only signed content-free commitments to the marketplace.
+[![npm](https://img.shields.io/npm/v/@traice-market/traicer)](https://www.npmjs.com/package/@traice-market/traicer)
+[![GitHub release](https://img.shields.io/github/v/release/smashah/traicer?display_name=tag)](https://github.com/smashah/traicer/releases/latest)
 
-This repository contains a pre-release client, not an endorsed installer. OpenAI Responses/Chat Completions and Anthropic Messages gateways, an authenticated explicit HTTP/HTTPS proxy, selective exact-host TLS capture with opt-in current-user CA trust, the Tauri desktop shell, OS credential vault, resumable storage transfer, deletion/tombstones, durable marketplace work, direct buyer-encrypted delivery, and signed Tauri updates are implemented. A distribution licence, production Apple/Windows signing and Apple notarisation, published update-feed verification, clean-machine release verification, live compatibility evidence, and external security review are still required before an endorsed release.
+Use Traicer to capture supported AI coding conversations you choose, protect them on your machine, and prepare them for sale through [Traice Market](https://traice.market). Your encrypted traces stay in S3-compatible storage you control; Traice Market receives signed inventory records and delivery commitments, not your raw prompts, source code, credentials, private object locations, or decryption keys.
 
-## CLI release target
+> [!WARNING]
+> Traicer is an operator preview. The macOS and Windows installers do not yet have production operating-system code signatures, and the macOS build is not notarised. Verify the [release checksums](https://github.com/smashah/traicer/releases/latest), start with non-sensitive work, and review the [release gates](docs/ROADMAP.md) before using it with production repositories.
 
-The first distribution target is the `@traice-market/traicer` npm CLI; native DMG and Windows installers follow each published CLI release. The guided initializer creates seller configuration, protects generated device secrets with [Varlock](https://varlock.dev/), and can scaffold Cloudflare R2 or AWS S3 through [Alchemy v2](https://v2.alchemy.run/) while also supporting an existing S3-compatible service.
+## Before you start
+
+You will need:
+
+- A Traice Market seller account and device credential.
+- An Anthropic or OpenAI provider credential. Your coding client continues to authenticate directly with the provider.
+- A dedicated Cloudflare R2, AWS S3, or compatible S3 bucket with scoped credentials.
+- Bun 1.3 or newer if you choose the CLI. The desktop app includes everything it needs to run the local service.
+
+## Choose how to run Traicer
+
+Start with the desktop app if this is your first time using Traicer. It guides you through setup, keeps secrets in your operating-system credential vault, and gives you a complete URL to copy into your coding client.
+
+Choose the CLI when you want file-based configuration or need to generate Cloudflare R2 or AWS S3 infrastructure. The current CLI is intended for operators: it starts the capture service, but it does not yet print the complete capability-bearing gateway URL you need for routine client setup.
+
+| | Desktop app | CLI |
+| --- | --- | --- |
+| Download | [Latest GitHub release](https://github.com/smashah/traicer/releases/latest) | `bunx @traice-market/traicer` |
+| Secrets | Operating-system credential vault | Varlock-encrypted values in `.env.local` |
+| Best for | Guided setup and everyday capture | Repeatable setup and storage scaffolding |
+
+## Make your first capture with the desktop app
+
+1. **Download the installer.** Choose the DMG for your Mac architecture, the setup EXE or MSI for Windows, or the DEB for Debian or Ubuntu. The `.app.tar.gz` files and `latest.json` on the release page are updater assets, not installers.
+2. **Verify the download.** Compare the installer's SHA-256 digest with the checksum published on the release before opening it.
+3. **Connect your accounts and storage.** Enter your Traice Market device credential, provider, bucket endpoint, bucket name, region, and scoped storage credentials.
+4. **Start Traicer.** Select **Authorise device and start**. Traicer checks your storage and privacy configuration before it starts accepting capture traffic.
+5. **Connect your coding client.** Copy the gateway URL shown in Traicer and use it as your client's provider base URL. Keep your normal Anthropic or OpenAI API key configured in the client.
+6. **Send a supported request.** After the provider responds successfully, check **Local trace lifecycle** in Traicer for the new safe trace summary.
+
+For Claude Code, start a session with the gateway URL shown by Traicer:
 
 ```sh
-bunx @traice-market/traicer init --storage cloudflare-r2 --account-id <account-id>
-# add the marketplace and storage credentials, then encrypt them in place
+ANTHROPIC_BASE_URL='<gateway-url-shown-by-traicer>' claude
+```
+
+The gateway URL contains a local capability, so treat it like a credential. Do not commit it, add it to a shared shell profile, or include it in screenshots and issues. See [Client configuration](docs/CLIENT_CONFIGURATION.md) for OpenAI-compatible clients and explicit-proxy setup.
+
+## Use the CLI
+
+Generate a configuration and a Cloudflare R2 infrastructure project without deploying it:
+
+```sh
+bunx @traice-market/traicer init \
+  --storage cloudflare-r2 \
+  --account-id <cloudflare-account-id> \
+  --provider anthropic
+```
+
+Add your marketplace and storage credentials to `~/.config/traicer/.env.local`, then protect the secret values and start Traicer:
+
+```sh
 bunx @traice-market/traicer secrets
 bunx @traice-market/traicer start
 ```
 
-Storage deployment requires an explicit `--deploy` flag or interactive confirmation. The initializer never treats `--yes` as permission to create cloud resources, and it writes generated private values only as encrypted Varlock references.
+`init` will not overwrite an existing configuration. It creates cloud resources only when you pass `--deploy` or approve the interactive deployment prompt; `--yes` does not grant deployment permission. Read the [CLI reference](docs/CLI.md) before using this path for capture.
 
-## Trust boundary
+## Know what will be captured
 
-- Provider traffic is forwarded through a fixed upstream and exact method/path allowlist; capture persistence fails closed while provider forwarding fails open.
-- The explicit proxy requires a per-install loopback capability, blind-tunnels non-target `CONNECT` traffic, and terminates TLS only for exact supported provider hosts after the user explicitly trusts the generated CA. Denied paths are forwarded without entering capture, storage, logs, or telemetry.
-- Redaction runs before deterministic canonicalisation, hashing, encryption, local persistence, or marketplace egress.
-- Raw trace bodies, reusable storage credentials, private keys, plaintext delivery capabilities, and private object locations never enter Traice-controlled systems.
-- Ciphertext is written directly to the seller's bucket and verified by metadata plus a full readback.
-- Safe manifests, readiness checks, inventory, dataset roots, agreements, envelopes, and receipts are signed commitments. They do not prove provider origin, ownership, legality, usefulness, or payment outside the verified integrated flow.
+Traicer captures only traffic you deliberately route through its loopback gateway or explicit proxy. It does not scan your processes, inject itself into coding tools, change your system proxy, or capture arbitrary network traffic.
 
-## Implemented flow
+| Provider | Captured after a successful response | Not captured |
+| --- | --- | --- |
+| Anthropic | `POST /v1/messages` | Token counting and model lookup |
+| OpenAI | `POST /v1/responses`, `POST /v1/chat/completions` | Embeddings and model lookup |
 
-```text
-configured coding client
-  -> loopback fixed-upstream gateway or authenticated explicit proxy
-  -> provider response returned unchanged
-  -> deny-default policy + secret stripping + redaction
-  -> canonical trace + AES-256-GCM envelope
-  -> seller S3 write/head/full-read verification
-  -> Ed25519 safe manifest + durable Drizzle/Bun SQLite outbox
-  -> Traice inventory/request work
-  -> immutable dataset and agreement signatures
-  -> per-delivery re-encryption + 15-minute seller URLs
-  -> X25519 buyer-encrypted capability submitted to Traice
-```
+Before an accepted trace leaves your machine, Traicer strips secrets, applies your redaction policy, and encrypts the result with AES-256-GCM. It writes the ciphertext directly to your bucket and sends a signed, content-free inventory record to Traice Market.
 
-Large seller-storage objects use a durable multipart journal so interrupted uploads resume without restarting completed parts. Expired temporary delivery objects are durably tracked and deleted from seller storage. A local trace deletion removes seller ciphertext, submits a signed marketplace tombstone, then erases local object references. The buyer application unwraps the capability locally, downloads directly from seller storage, verifies ciphertext and canonical hashes, and submits an Ed25519 receipt.
+If the provider request succeeds but a later capture step fails, Traicer leaves the provider response alone and creates no marketable trace. Capturing a trace does not commit a dataset, accept a sale, or prepare a delivery automatically: those actions require your explicit approval in Traicer.
 
-## Desktop security model
+## Get help
 
-The Tauri shell stores configuration, the marketplace credential, Ed25519 private key, seller-storage secret, and local wrapping key in the operating-system credential vault. The React webview receives only safe configuration/status. A one-use stdin bootstrap carries secrets to the native Bun daemon; secrets never use process arguments, environment variables, stdout, diagnostic exports, or marketplace payloads.
+- Follow [Getting started](docs/GETTING_STARTED.md) for the full setup walkthrough.
+- Use [Desktop app](docs/DESKTOP.md) for installation, local CA trust, updates, and capture controls.
+- Use [Storage](docs/STORAGE.md) to prepare Cloudflare R2, AWS S3, or another S3-compatible service.
+- Work through [Troubleshooting](docs/TROUBLESHOOTING.md) when startup, routing, or capture fails.
+- Browse the [documentation index](docs/README.md) for the CLI, security model, architecture, and maintainer guides.
 
-The desktop supports pause/resume, loopback health, marketplace work, dataset commitment, seller agreement proposal, delivery preparation, trace deletion, explicit proxy configuration, opt-in CA trust and removal, launch-at-login, and a three-start/five-minute crash-loop budget. Managed PAC/system proxy changes and native transparent redirection are separate privileged modes and are not silently installed by this release.
+For reproducible bugs that contain no sensitive data, open a [GitHub issue](https://github.com/smashah/traicer/issues). Report vulnerabilities through [GitHub's private security advisory flow](https://github.com/smashah/traicer/security/advisories/new).
 
-## Development and verification
-
-Install Node 24, pnpm 10.28.1, Bun, Rust 1.88, and the Tauri platform prerequisites.
-
-```sh
-pnpm install
-pnpm typecheck
-pnpm test
-pnpm build
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
-cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
-cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
-```
-
-CI also compiles the native daemon, creates an unsigned debug Linux package, and rejects imports from reference source trees. Bumpy generates package versions and changelogs, publishes the CLI with npm provenance, and creates the GitHub release before the desktop workflow builds and attaches updater-signed native previews. Platform code signing and notarisation are applied only after their credentials are configured.
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Release workflow](docs/RELEASING.md)
-- [Roadmap and release gates](docs/ROADMAP.md)
-- [Telemetry contract](docs/TELEMETRY.md)
-- [Threat model](docs/THREAT_MODEL.md)
-- [Private vulnerability reporting](SECURITY.md)
+Never include raw traces, prompts, source code, credentials, private keys, storage URLs, capability-bearing gateway URLs, or unredacted diagnostics in a public issue. Read the [security policy](SECURITY.md), [threat model](docs/THREAT_MODEL.md), and [telemetry contract](docs/TELEMETRY.md) before using Traicer with sensitive repositories.
 
 ## Licence status
 
-The source is public for inspection, but no distribution licence has been selected. No `LICENSE` file is included, so normal copyright applies. Do not redistribute binaries or describe this repository as an open-source release until the founder completes the licence and dependency-obligation review.
+The source is public for inspection, but no distribution licence has been selected. No `LICENSE` file is included, so normal copyright applies. Do not describe Traicer as open source or redistribute its packages until a licence is published.
