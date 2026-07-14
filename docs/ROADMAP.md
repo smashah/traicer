@@ -11,9 +11,10 @@
 
 1. Select the distribution licence and complete dependency-obligation review.
 2. Provision production Apple/Windows signing and Apple notarisation, then verify the configured Tauri updater key and feed through an actual published release from the protected release environment.
-3. Generate exact signed artefacts and verify install, first run, update, rollback, uninstall, vault behaviour, crash recovery, and settings restoration on clean macOS, Windows, and Linux machines.
-4. Run live OpenAI/Anthropic and selected S3-provider compatibility fixtures, including streaming, corruption, expiry, deletion, revocation, and packet-capture checks.
-5. Complete an independent security/privacy review and resolve every release-blocking finding.
+3. Add a supported CLI endpoint command so operators can configure a client without decrypting, printing, or manually reconstructing the adapter capability.
+4. Generate exact signed artefacts and verify install, first run, update, rollback, uninstall, vault behaviour, crash recovery, and settings restoration on clean macOS, Windows, and Linux machines.
+5. Run live OpenAI/Anthropic and selected S3-provider compatibility fixtures, including streaming, corruption, expiry, deletion, revocation, and packet-capture checks.
+6. Complete an independent security/privacy review and resolve every release-blocking finding.
 
 ## Post-launch privileged capabilities
 
