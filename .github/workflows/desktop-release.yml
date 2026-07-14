@@ -43,6 +43,8 @@ jobs:
 
   package:
     needs: [release-context, verify]
+    env:
+      APPLE_SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -97,7 +99,8 @@ jobs:
           if [[ "${{ runner.os }}" == "Windows" ]]; then extension=".exe"; fi
           mkdir -p apps/desktop/src-tauri/binaries
           bun build apps/daemon/src/index.ts --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=${{ matrix.bun_target }} --outfile=apps/desktop/src-tauri/binaries/traicer-daemon-${{ matrix.rust_target }}${extension}
-      - name: Package signed native installer
+      - name: Package Apple-signed native installer
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_CONFIGURED == 'true'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -108,7 +111,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm --filter @traice/desktop exec tauri build --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundle }} --ci --config '{"version":"${{ needs.release-context.outputs.version }}"}'
+        run: pnpm --filter @traice/desktop exec tauri build --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundle }} --ci --config '{"version":"${{ needs.release-context.outputs.version }}","bundle":{"icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]}}'
+      - name: Package native preview installer
+        if: runner.os != 'macOS' || env.APPLE_SIGNING_CONFIGURED != 'true'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm --filter @traice/desktop exec tauri build --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundle }} --ci --config '{"version":"${{ needs.release-context.outputs.version }}","bundle":{"icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]}}'
       - name: Generate checksums
         shell: bash
         run: |

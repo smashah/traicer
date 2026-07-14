@@ -64,7 +64,7 @@ cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
 cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
 ```
 
-CI also compiles the native daemon, creates an unsigned debug Linux package, and rejects imports from reference source trees. Bumpy generates package versions and changelogs, publishes the CLI with npm provenance, and creates the GitHub release before the desktop workflow builds and attaches signed native installers.
+CI also compiles the native daemon, creates an unsigned debug Linux package, and rejects imports from reference source trees. Bumpy generates package versions and changelogs, publishes the CLI with npm provenance, and creates the GitHub release before the desktop workflow builds and attaches updater-signed native previews. Platform code signing and notarisation are applied only after their credentials are configured.
 
 ## Documentation
 

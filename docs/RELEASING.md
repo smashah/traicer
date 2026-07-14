@@ -1,6 +1,6 @@
 # Release workflow
 
-Traicer releases the CLI first. Bumpy publishes `@traice-market/traicer` to npm, writes its changelog, creates the `@traice-market/traicer@<version>` tag, and publishes the matching GitHub release. That published release starts the lower-priority desktop workflow, which builds and attaches signed DMG, EXE/MSI, AppImage, and DEB artifacts without republishing the CLI.
+Traicer releases the CLI first. Bumpy publishes `@traice-market/traicer` to npm, writes its changelog, creates the `@traice-market/traicer@<version>` tag, and publishes the matching GitHub release. That published release starts the lower-priority desktop workflow, which builds and attaches DMG, EXE/MSI, AppImage, and DEB artifacts without republishing the CLI. Tauri updater artifacts are signed; operating-system code signing and notarisation are applied only when the corresponding platform credentials are configured.
 
 ## Preparing a change
 
@@ -21,7 +21,7 @@ The `release metadata` action runs `bumpy ci check` on pull requests. It reports
 1. **Verify and plan on `main`.** `.github/workflows/release.yml` runs the full reusable CI suite for the exact commit before `bumpy ci plan`. Pending bump files select `version-pr`; versioned packages that are not on npm select `publish`; otherwise the workflow stops.
 2. **Merge the version PR.** Bumpy opens or updates `bumpy/version-packages`, consumes the bump files, updates both package versions, and generates `apps/cli/CHANGELOG.md`. Review the generated versions and changelog, then merge it normally.
 3. **Publish the CLI.** The next `main` run tests, typechecks, and builds `@traice-market/traicer`, publishes through npm trusted publishing with provenance, pushes the package tag, and creates the GitHub release.
-4. **Attach desktop installers.** The published package release starts `.github/workflows/desktop-release.yml`. It re-runs the full CI suite against that exact package tag before its matrix builds signed installers, checksums, SBOMs, provenance attestations, and the signed updater manifest, then uploads them to the existing CLI release. A failed desktop run can be retried with `workflow_dispatch` and the existing package tag; npm is not touched.
+4. **Attach desktop installers.** The published package release starts `.github/workflows/desktop-release.yml`. It re-runs the full CI suite against that exact package tag before its matrix builds installers, checksums, SBOMs, provenance attestations, and the signed updater manifest, then uploads them to the existing CLI release. A failed desktop run can be retried with `workflow_dispatch` and the existing package tag; npm is not touched. Without platform certificates, the OS packages are clearly treated as unsigned previews even though their updater archives and manifest remain signed.
 
 The release tag is Bumpy's package tag, for example `@traice-market/traicer@0.1.0`. Do not create `v0.1.0` tags or hand-create a second GitHub release.
 
@@ -31,7 +31,7 @@ The release tag is Bumpy's package tag, for example `@traice-market/traicer@0.1.
 - Create or verify the public npm package `@traice-market/traicer`. Configure npm trusted publishing for repository `smashah/traicer`, workflow `release.yml`, and GitHub environment `publish`. The first publish cannot use npm staged publishing.
 - Create protected GitHub environments named `publish` and `release`. Require approval for `release` if desktop signing should remain a separate operator decision.
 - Add `BUMPY_GH_TOKEN` as a repository Actions secret using a fine-grained bot PAT or GitHub App token with repository contents and pull-request write access. Bumpy uses it to make version-PR and release events trigger downstream workflows; releases created with the default `GITHUB_TOKEN` do not trigger the desktop workflow.
-- Add the Apple certificate, notarisation, Windows/Tauri signing, and updater secrets referenced by `desktop-release.yml` to the `release` environment. Keep all private signing material in environment secrets, never repository variables or files.
+- Add the Apple certificate, notarisation, Windows code-signing, and Tauri updater secrets referenced by `desktop-release.yml` to the `release` environment. Keep all private signing material in environment secrets, never repository variables or files. Until Apple and Windows credentials exist, the workflow publishes unsigned preview installers rather than exporting empty certificate values into Tauri.
 
 ## Local inspection
 
