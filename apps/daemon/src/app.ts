@@ -7,6 +7,8 @@ import { PauseRequestV1 } from "@traice/api-contract";
 import { constantTimeEqual } from "@traice/crypto";
 import type { CaptureControlShape } from "@traice/effect-runtime";
 
+import type { CaptureRouteInput } from "./capture-routes";
+
 export interface ControlDependencies {
   readonly abortMultipart?: (ciphertextHash: string) => Promise<boolean>;
   readonly control: CaptureControlShape;
@@ -14,10 +16,18 @@ export interface ControlDependencies {
   readonly databaseReady: () => boolean;
   readonly commitDataset?: (requestId: string) => Promise<unknown>;
   readonly gatewayReady?: () => boolean;
+  readonly issueCaptureRoute?: (input: CaptureRouteInput) => Promise<{
+    readonly expiresAt: string;
+    readonly routeId: string;
+    readonly routeToken: string;
+  }>;
+  readonly instanceId?: string;
   readonly onPause?: () => void;
   readonly onResume?: () => void;
   readonly proposeAgreement?: (requestId: string) => Promise<unknown>;
   readonly prepareDelivery?: (requestId: string) => Promise<unknown>;
+  readonly protocolVersion?: 1 | 2;
+  readonly revokeCaptureRoute?: (routeId: string) => Promise<boolean>;
   readonly queueCounts?: () => { readonly committed: number; readonly pending: number };
   readonly eventsAfter?: (sequence: number) => readonly {
     readonly createdAt: string;
@@ -61,7 +71,8 @@ export const createControlApp = (dependencies: ControlDependencies) => {
           : "ready"
         : "not_started",
       manifests: dependencies.queueCounts?.() ?? { committed: 0, pending: 0 },
-      protocolVersion: 1,
+      instanceId: dependencies.instanceId,
+      protocolVersion: dependencies.protocolVersion ?? 1,
       spool: captureStatus === "paused" ? "paused" : "ready",
     });
   });
@@ -72,7 +83,7 @@ export const createControlApp = (dependencies: ControlDependencies) => {
       adaptersEnabled: dependencies.gatewayReady?.() ? 1 : 0,
       captureStatus,
       committedManifestCount: dependencies.queueCounts?.().committed ?? 0,
-      protocolVersion: 1,
+      protocolVersion: dependencies.protocolVersion ?? 1,
       queuedTraceCount: dependencies.queueCounts?.().pending ?? 0,
     });
   });
@@ -84,6 +95,30 @@ export const createControlApp = (dependencies: ControlDependencies) => {
         : [],
     })
   );
+
+  app.post("/v1/capture-routes", async (context) => {
+    if (!dependencies.issueCaptureRoute) {
+      return context.json({ code: "CAPTURE_NOT_CONFIGURED", message: "Capture is not configured" }, 409);
+    }
+    try {
+      const route = await dependencies.issueCaptureRoute(await context.req.json<CaptureRouteInput>());
+      return context.json({ data: route, success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid capture route";
+      return context.json({ code: "INVALID_REQUEST", message }, 400);
+    }
+  });
+
+  app.delete("/v1/capture-routes/:id", async (context) => {
+    if (!dependencies.revokeCaptureRoute) {
+      return context.json({ code: "CAPTURE_NOT_CONFIGURED", message: "Capture is not configured" }, 409);
+    }
+    const routeId = context.req.param("id");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(routeId)) {
+      return context.json({ code: "INVALID_REQUEST", message: "A route UUID is required" }, 400);
+    }
+    return context.json({ revoked: await dependencies.revokeCaptureRoute(routeId), success: true });
+  });
 
   app.get("/v1/storage/status", (context) =>
     context.json({
@@ -208,7 +243,7 @@ export const createControlApp = (dependencies: ControlDependencies) => {
         database: 1,
         detector: "builtin/1",
         envelope: 1,
-        protocol: 1,
+        protocol: dependencies.protocolVersion ?? 1,
       },
     });
   });

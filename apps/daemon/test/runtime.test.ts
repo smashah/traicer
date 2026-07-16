@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import type { CaptureBootstrapV1 } from "@traice/api-contract";
+import type { CaptureBootstrapV2 } from "@traice/api-contract";
 import {
   bytesToBase64Url,
   decryptTraceEnvelope,
@@ -64,17 +64,19 @@ describe("daemon capture runtime", () => {
     databasePaths.push(databasePath);
     const state = openOperationalState(databasePath);
     const submittedBodies: unknown[] = [];
-    const bootstrap: CaptureBootstrapV1 = {
-      adapterCapability: "local-adapter-capability",
+    const bootstrap: CaptureBootstrapV2 = {
+      adapters: [{
+        allowedPaths: ["/v1/responses"],
+        provider: "openai",
+        upstreamOrigin: "https://api.openai.com",
+      }],
       bucketAlias: "seller-store-01",
-      client: "codex",
       deviceId: crypto.randomUUID(),
       marketplace: {
         apiBaseUrl: "https://api.traice.market",
         credential: "manifest-capability-secret",
       },
       policy: {
-        allowedPaths: ["/v1/responses"],
         capturePolicyId: crypto.randomUUID(),
         pipelineVersion: "pipeline/1",
         policyVersion: "policy/1",
@@ -92,7 +94,6 @@ describe("daemon capture runtime", () => {
         signingRegion: "auto",
         storageCapabilityProfileId: "loopback-s3-v1",
       },
-      upstreamOrigin: "https://api.openai.com",
     };
     const runtime = createCaptureRuntime(
       bootstrap,
@@ -107,6 +108,14 @@ describe("daemon capture runtime", () => {
           );
           return new Response(JSON.stringify({ success: true }), { status: 202 });
         },
+        resolveRoute: async (token) => token === "scoped-route" ? {
+          captureRunId: "22222222-2222-4222-8222-222222222222",
+          client: "codex",
+          expiresAt: "2030-01-01T00:00:00.000Z",
+          projectScopeId: "33333333-3333-4333-8333-333333333333",
+          providers: ["openai"],
+          routeId: "11111111-1111-4111-8111-111111111111",
+        } : undefined,
         upstreamFetch: async () =>
           new Response(
             JSON.stringify({
@@ -120,7 +129,7 @@ describe("daemon capture runtime", () => {
     await runtime.initialize();
 
     const response = await runtime.gateway.request(
-      "http://127.0.0.1/openai/local-adapter-capability/v1/responses",
+      "http://127.0.0.1/openai/scoped-route/v1/responses",
       {
         body: JSON.stringify({
           api_key: "sk-abcdefghijklmnop",
@@ -150,6 +159,7 @@ describe("daemon capture runtime", () => {
       await decryptTraceEnvelope({ envelope: encrypted, wrappingKey })
     );
     expect(plaintext).toContain("RAW_CANARY_DO_NOT_EGRESS");
+    expect(plaintext).toContain('"captureRunId":"22222222-2222-4222-8222-222222222222"');
     expect(plaintext).not.toContain("seller@example.com");
     expect(plaintext).not.toContain("sk-abcdefghijklmnop");
     expect(state.counts()).toEqual({ committed: 1, pending: 0 });
@@ -158,6 +168,8 @@ describe("daemon capture runtime", () => {
     expect(egress).not.toContain("provider-secret");
     expect(egress).not.toContain("manifest-capability-secret");
     expect(egress).not.toContain("seller@example.com");
+    expect(egress).toContain('"projectScopeId":"33333333-3333-4333-8333-333333333333"');
+    expect(egress).not.toContain("22222222-2222-4222-8222-222222222222");
     state.close();
   });
 });

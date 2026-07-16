@@ -1,4 +1,4 @@
-import type { CaptureBootstrapV1 } from "@traice/api-contract";
+import type { CaptureBootstrapV1, CaptureBootstrapV2 } from "@traice/api-contract";
 import { createCaptureEngine } from "@traice/capture-core";
 import {
   base64UrlToBytes,
@@ -18,6 +18,7 @@ import {
 import { canonicalBytes, canonicalJson, redactExchange } from "@traice/privacy-pipeline";
 import type { openOperationalState } from "@traice/state-sqlite";
 import { createS3CompatibleObjectStore } from "@traice/storage-s3";
+import { Hono } from "hono";
 
 import {
   createGatewayScheduler,
@@ -25,20 +26,35 @@ import {
   createOpenAiGateway,
   type GatewayFetch,
 } from "./gateway";
+import type { CaptureRoute } from "./capture-routes";
 
 type OperationalState = ReturnType<typeof openOperationalState>;
 
 export interface RuntimeOverrides {
   readonly marketplaceFetch?: MarketplaceFetch;
+  readonly resolveRoute?: (routeToken: string) => Promise<CaptureRoute | undefined>;
   readonly upstreamFetch?: GatewayFetch;
 }
 
 export const createCaptureRuntime = (
-  bootstrap: CaptureBootstrapV1,
+  bootstrap: CaptureBootstrapV1 | CaptureBootstrapV2,
   vaultKey: string,
   state: OperationalState,
   overrides: RuntimeOverrides = {}
 ) => {
+  const adapters = "adapters" in bootstrap
+    ? bootstrap.adapters
+    : [{
+        allowedPaths: bootstrap.policy.allowedPaths,
+        provider: new URL(bootstrap.upstreamOrigin).hostname.includes("anthropic")
+          ? "anthropic" as const
+          : "openai" as const,
+        upstreamOrigin: bootstrap.upstreamOrigin,
+      }];
+  const legacyAdapterCapability = "adapterCapability" in bootstrap
+    ? bootstrap.adapterCapability
+    : bootstrap.legacyAdapterCapability;
+  const legacyClient = "client" in bootstrap ? bootstrap.client : bootstrap.legacyClient;
   const remoteSink = createMarketplaceManifestClient({
     apiBaseUrl: bootstrap.marketplace.apiBaseUrl,
     credential: bootstrap.marketplace.credential,
@@ -71,7 +87,7 @@ export const createCaptureRuntime = (
   );
   const policy: CapturePolicyV1 = {
     allowedMethods: ["POST"],
-    allowedPaths: bootstrap.policy.allowedPaths,
+    allowedPaths: [...new Set(adapters.flatMap((adapter) => adapter.allowedPaths))],
     capturePolicyId: bootstrap.policy.capturePolicyId,
     pipelineVersion: bootstrap.policy.pipelineVersion,
     policyVersion: bootstrap.policy.policyVersion,
@@ -97,25 +113,29 @@ export const createCaptureRuntime = (
       failed: ({ code, stage, traceId }) => state.recordFailure(traceId, stage, code),
       manifestPending: ({ clientManifestId, traceId }) =>
         state.recordManifestPending(traceId, clientManifestId),
-      observed: ({ capturedAt, traceId }) => state.recordObserved(traceId, capturedAt),
+      observed: ({ capturedAt, traceId, ...context }) => state.recordObserved(traceId, capturedAt, context),
     }
   );
   const scheduler = createGatewayScheduler();
   let captureEnabled = false;
-  const gatewayFactory = new URL(bootstrap.upstreamOrigin).hostname.includes("anthropic")
-    ? createAnthropicGateway
-    : createOpenAiGateway;
-  const gateway = gatewayFactory({
-    adapterCapability: bootstrap.adapterCapability,
-    capture: async (exchange) => {
+  const gateway = new Hono();
+  const gatewayDependencies = (upstreamOrigin: string) => ({
+    ...(legacyAdapterCapability ? { adapterCapability: legacyAdapterCapability } : {}),
+    capture: async (exchange: Parameters<typeof engine.capture>[0]) => {
       await engine.capture(exchange);
     },
     captureEnabled: () => captureEnabled,
-    client: bootstrap.client,
+    ...(legacyClient ? { client: legacyClient } : {}),
     ...(overrides.upstreamFetch ? { fetchUpstream: overrides.upstreamFetch } : {}),
+    ...(overrides.resolveRoute ? { resolveRoute: overrides.resolveRoute } : {}),
     scheduler,
-    upstreamOrigin: bootstrap.upstreamOrigin,
+    upstreamOrigin,
   });
+  for (const adapter of adapters) {
+    gateway.route("/", adapter.provider === "anthropic"
+      ? createAnthropicGateway(gatewayDependencies(adapter.upstreamOrigin))
+      : createOpenAiGateway(gatewayDependencies(adapter.upstreamOrigin)));
+  }
 
   const publishInventory = async () => {
     const manifests = state.committedManifests();
@@ -128,12 +148,15 @@ export const createCaptureRuntime = (
       ? new Date(Math.max(...captured)).toISOString()
       : now;
     const eligible = manifests.length;
-    const totalTokens = manifests.reduce(
-      (total, { manifest }) => total + manifest.inputTokens + manifest.outputTokens,
-      0
-    );
-    const traceCountBand = eligible < 10 ? "under-10" : eligible < 100 ? "10-99" : eligible < 1_000 ? "100-999" : "1000+";
-    const tokenCountBand = totalTokens < 10_000 ? "under-10k" : totalTokens < 1_000_000 ? "10k-999k" : "1m+";
+    const traceBand = (count: number) => count < 10 ? "under-10" : count < 100 ? "10-99" : count < 1_000 ? "100-999" : "1000+";
+    const tokenBand = (count: number) => count < 10_000 ? "under-10k" : count < 1_000_000 ? "10k-999k" : "1m+";
+    const byScope = new Map<string, typeof manifests>();
+    for (const signed of manifests) {
+      const scope = signed.manifest.schema === "traice.manifest/2"
+        ? signed.manifest.projectScopeId
+        : "legacy-unscoped";
+      byScope.set(scope, [...(byScope.get(scope) ?? []), signed]);
+    }
     const snapshotPayload = {
       aggregateDimensions: {
         providers: [...new Set(manifests.map(({ manifest }) => manifest.provider))],
@@ -149,23 +172,24 @@ export const createCaptureRuntime = (
       },
       deviceId: bootstrap.deviceId,
       generatedAt: now,
-      segments: eligible === 0 ? [] : [{
+      segments: [...byScope.entries()].map(([projectScopeId, scoped]) => ({
         coarseningLevel: 1,
         effectiveFrom: sourceStartAt,
-        eligibleManifestCount: eligible,
+        eligibleManifestCount: scoped.length,
         filterDimensions: {
-          adapter: [...new Set(manifests.map(({ manifest }) => manifest.adapter))],
+          adapter: [...new Set(scoped.map(({ manifest }) => manifest.adapter))],
           domain: ["software-development"],
-          model: [...new Set(manifests.map(({ manifest }) => manifest.model))],
-          provider: [...new Set(manifests.map(({ manifest }) => manifest.provider))],
+          model: [...new Set(scoped.map(({ manifest }) => manifest.model))],
+          projectScopeId,
+          provider: [...new Set(scoped.map(({ manifest }) => manifest.provider))],
           task: ["coding-agent"],
           verificationTier: ["self_attested"],
         },
         label: "Seller-approved coding-agent traces",
-        tokenCountBand,
-        traceCountBand,
-        visibility: eligible >= 10 ? "qualified_buyers" as const : "private" as const,
-      }],
+        tokenCountBand: tokenBand(scoped.reduce((total, item) => total + item.manifest.inputTokens + item.manifest.outputTokens, 0)),
+        traceCountBand: traceBand(scoped.length),
+        visibility: scoped.length >= 10 ? "qualified_buyers" as const : "private" as const,
+      })),
       sourceEndAt,
       sourceStartAt,
     };
@@ -179,7 +203,13 @@ export const createCaptureRuntime = (
     const work = (await marketplace.workQueue()).data.find((item) => item.request.id === requestId);
     if (!work) throw new Error("Marketplace request is not available to this seller");
     if (work.dataset) return work.dataset;
-    const manifests = state.committedManifests(work.request.requestedTraceCount);
+    const requestedScope = typeof work.request.projectScopeId === "string"
+      ? work.request.projectScopeId
+      : undefined;
+    const manifests = state.committedManifests().filter((signed) => requestedScope === undefined || (
+      signed.manifest.schema === "traice.manifest/2" &&
+      signed.manifest.projectScopeId === requestedScope
+    )).slice(0, work.request.requestedTraceCount);
     if (manifests.length === 0) throw new Error("No committed local manifests are eligible");
     const orderedManifestCommitments = manifests
       .map(({ manifest }) => manifest.canonicalHash)
@@ -375,17 +405,16 @@ export const createCaptureRuntime = (
       });
       if (!storagePassed) throw new Error("Seller storage conformance failed");
 
-      const provider = new URL(bootstrap.upstreamOrigin).hostname.includes("anthropic")
-        ? "anthropic" as const
-        : "openai" as const;
+      const dryRunAdapter = adapters[0]!;
+      const provider = dryRunAdapter.provider;
       const fixtureSecret = "trc_fixture_secret_that_must_not_survive";
       const fixture = redactExchange({
         adapter: provider === "anthropic" ? "anthropic-messages/1" : "openai-responses/1",
         capturedAt: checkedAt,
-        client: bootstrap.client,
+        client: legacyClient ?? "traicer-dry-run",
         method: "POST",
         model: "traicer-dry-run",
-        path: policy.allowedPaths[0] ?? "/",
+        path: dryRunAdapter.allowedPaths[0] ?? "/",
         provider,
         requestBody: { authorization: fixtureSecret, prompt: "safe fixture" },
         requestHeaders: { authorization: `Bearer ${fixtureSecret}` },

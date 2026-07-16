@@ -1,23 +1,29 @@
 import { Schema } from "effect";
 
-import { BootstrapV1 } from "@traice/api-contract";
+import { Bootstrap } from "@traice/api-contract";
 import { makeCaptureControl } from "@traice/effect-runtime";
 import { openOperationalState } from "@traice/state-sqlite";
 
 import { createControlApp } from "./app";
+import { createCaptureRouteRegistry } from "./capture-routes";
 import { createCaptureRuntime } from "./runtime";
 import { startForwardProxy } from "./forward-proxy";
+import { removeRuntimeDescriptor, writeRuntimeDescriptor } from "./runtime-descriptor";
 
 const readBootstrap = async () => {
   const text = (await Bun.stdin.text()).trim();
-  return Schema.decodeUnknownSync(BootstrapV1)(JSON.parse(text));
+  return Schema.decodeUnknownSync(Bootstrap)(JSON.parse(text));
 };
 
 const bootstrap = await readBootstrap();
 const state = openOperationalState("traicer-state.db");
 const control = makeCaptureControl("healthy");
+const instanceId = crypto.randomUUID();
+const captureRoutes = createCaptureRouteRegistry();
 const runtime = bootstrap.capture
-  ? createCaptureRuntime(bootstrap.capture, bootstrap.vaultKey, state)
+  ? createCaptureRuntime(bootstrap.capture, bootstrap.vaultKey, state, {
+      resolveRoute: captureRoutes.resolve,
+    })
   : undefined;
 const controlApp = createControlApp({
   control,
@@ -25,6 +31,9 @@ const controlApp = createControlApp({
   databaseReady: state.integrityCheck,
   eventsAfter: state.eventsAfter,
   gatewayReady: () => runtime !== undefined,
+  issueCaptureRoute: captureRoutes.issue,
+  instanceId,
+  revokeCaptureRoute: captureRoutes.revoke,
   ...(runtime
     ? {
         abortMultipart: runtime.abortMultipart,
@@ -38,6 +47,7 @@ const controlApp = createControlApp({
       }
     : {}),
   queueCounts: state.counts,
+  protocolVersion: bootstrap.protocolVersion,
   traces: state.traces,
 });
 
@@ -59,17 +69,29 @@ const controlServer = Bun.serve({
 const gatewayServer = runtime
   ? Bun.serve({ fetch: runtime.gateway.fetch, hostname: "127.0.0.1", port: 0 })
   : undefined;
-const forwardProxy = runtime && bootstrap.capture?.proxyTls
+const legacyCapture = bootstrap.capture && "proxyTls" in bootstrap.capture ? bootstrap.capture : undefined;
+const forwardProxy = runtime && legacyCapture?.proxyTls
   ? await startForwardProxy({
-      allowedPaths: bootstrap.capture.policy.allowedPaths,
-      certificatePem: bootstrap.capture.proxyTls.certificatePem,
+      allowedPaths: legacyCapture.policy.allowedPaths,
+      certificatePem: legacyCapture.proxyTls.certificatePem,
       gatewayFetch: runtime.gateway.fetch,
       onPinningFailure: () => state.recordEvent("proxy.pinning_detected", { captureSkipped: true }),
-      privateKeyPem: bootstrap.capture.proxyTls.privateKeyPem,
-      targetHosts: bootstrap.capture.proxyTls.targetHosts,
-      token: bootstrap.capture.adapterCapability,
+      privateKeyPem: legacyCapture.proxyTls.privateKeyPem,
+      targetHosts: legacyCapture.proxyTls.targetHosts,
+      token: legacyCapture.adapterCapability,
     })
   : undefined;
+
+if (gatewayServer) {
+  await writeRuntimeDescriptor(process.cwd(), {
+    controlPort: controlServer.port!,
+    gatewayPort: gatewayServer.port!,
+    instanceId,
+    pid: process.pid,
+    protocolVersion: bootstrap.protocolVersion,
+    schema: "traicer.runtime/1",
+  });
+}
 
 console.log(
   JSON.stringify({
@@ -77,7 +99,7 @@ console.log(
     gatewayPort: gatewayServer?.port ?? null,
     proxyPort: forwardProxy?.port ?? null,
     pid: process.pid,
-    protocolVersion: 1,
+    protocolVersion: bootstrap.protocolVersion,
     type: "ready",
   })
 );
@@ -88,6 +110,7 @@ const shutdown = async () => {
   gatewayServer?.stop(true);
   await forwardProxy?.close();
   await runtime?.scheduler.drain();
+  await removeRuntimeDescriptor(process.cwd(), instanceId).catch(() => undefined);
   state.close();
   process.exit(0);
 };

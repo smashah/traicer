@@ -2,6 +2,8 @@ import { sanitizeTransportHeaders } from "@traice/capture-core";
 import type { CaptureProvider, ObservedProviderExchange } from "@traice/domain";
 import { Hono } from "hono";
 
+import type { CaptureRoute } from "./capture-routes";
+
 export type GatewayFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 const hopByHopHeaders = new Set([
@@ -100,11 +102,12 @@ export const createGatewayScheduler = (): GatewayScheduler => {
 };
 
 export interface GatewayDependencies {
-  readonly adapterCapability: string;
+  readonly adapterCapability?: string;
   readonly capture: (exchange: ObservedProviderExchange) => Promise<void>;
   readonly captureEnabled: () => boolean;
-  readonly client: string;
+  readonly client?: string;
   readonly fetchUpstream?: GatewayFetch;
+  readonly resolveRoute?: (routeToken: string) => Promise<CaptureRoute | undefined>;
   readonly scheduler: GatewayScheduler;
   readonly upstreamOrigin: string;
 }
@@ -133,13 +136,17 @@ const createProviderGateway = (
   const app = new Hono();
 
   app.all(`/${config.prefix}/:capability/v1/*`, async (context) => {
-    if (context.req.param("capability") !== dependencies.adapterCapability) {
+    const capability = context.req.param("capability");
+    const route = await dependencies.resolveRoute?.(capability);
+    const legacyAuthorized = dependencies.adapterCapability !== undefined &&
+      capability === dependencies.adapterCapability;
+    if (!route && !legacyAuthorized) {
       return context.json({ code: "INVALID_ADAPTER_CAPABILITY" }, 401);
     }
-    const providerPath = context.req.path.replace(
-      `/${config.prefix}/${dependencies.adapterCapability}`,
-      ""
-    );
+    if (route && !route.providers.includes(config.provider)) {
+      return context.json({ code: "PROVIDER_NOT_AUTHORIZED" }, 403);
+    }
+    const providerPath = context.req.path.replace(`/${config.prefix}/${capability}`, "");
     const isModelLookup = providerPath.startsWith("/v1/models/");
     const captureEligible = config.capturedPaths.has(providerPath) && context.req.method === "POST";
     const forwardOnly =
@@ -174,7 +181,11 @@ const createProviderGateway = (
           await dependencies.capture({
             adapter: config.adapterForPath(providerPath),
             capturedAt: new Date().toISOString(),
-            client: dependencies.client,
+            ...(route ? {
+              captureRunId: route.captureRunId,
+              projectScopeId: route.projectScopeId,
+            } : {}),
+            client: route?.client ?? dependencies.client ?? "unknown",
             method: "POST",
             model,
             path: providerPath,

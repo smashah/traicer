@@ -24,6 +24,57 @@ describe("private control API", () => {
     expect(await response.json()).toEqual({ captureStatus: "paused", success: true });
   });
 
+  test("issues and revokes a project-scoped capture route", async () => {
+    const issued: unknown[] = [];
+    const revoked: string[] = [];
+    const app = createControlApp({
+      control: makeCaptureControl(),
+      controlToken: token,
+      databaseReady: () => true,
+      issueCaptureRoute: async (input) => {
+        issued.push(input);
+        return {
+          expiresAt: "2030-01-01T00:00:00.000Z",
+          routeId: "11111111-1111-4111-8111-111111111111",
+          routeToken: "route-capability-that-must-not-be-logged",
+        };
+      },
+      revokeCaptureRoute: async (routeId) => {
+        revoked.push(routeId);
+        return true;
+      },
+    });
+    const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const response = await app.request("http://127.0.0.1/v1/capture-routes", {
+      body: JSON.stringify({
+        captureRunId: "22222222-2222-4222-8222-222222222222",
+        client: "claude-code",
+        projectScopeId: "33333333-3333-4333-8333-333333333333",
+        providers: ["anthropic"],
+        ttlSeconds: 600,
+      }),
+      headers,
+      method: "POST",
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: {
+        expiresAt: "2030-01-01T00:00:00.000Z",
+        routeId: "11111111-1111-4111-8111-111111111111",
+        routeToken: "route-capability-that-must-not-be-logged",
+      },
+      success: true,
+    });
+    expect(issued).toHaveLength(1);
+
+    const revoke = await app.request(
+      "http://127.0.0.1/v1/capture-routes/11111111-1111-4111-8111-111111111111",
+      { headers, method: "DELETE" }
+    );
+    expect(await revoke.json()).toEqual({ revoked: true, success: true });
+    expect(revoked).toEqual(["11111111-1111-4111-8111-111111111111"]);
+  });
+
   test("returns content-free status, trace metadata and diagnostics", async () => {
     const app = createControlApp({
       control: makeCaptureControl(),

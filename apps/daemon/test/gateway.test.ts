@@ -9,6 +9,40 @@ import {
 } from "../src/gateway";
 
 describe("OpenAI-compatible fixed-upstream gateway", () => {
+  test("binds captures to the project-scoped route context", async () => {
+    const scheduler = createGatewayScheduler();
+    const captures: ObservedProviderExchange[] = [];
+    const app = createOpenAiGateway({
+      capture: async (exchange) => {
+        captures.push(exchange);
+      },
+      captureEnabled: () => true,
+      fetchUpstream: async () => new Response(JSON.stringify({ usage: {} })),
+      resolveRoute: async (token) => token === "scoped-token" ? {
+        captureRunId: "22222222-2222-4222-8222-222222222222",
+        client: "codex",
+        expiresAt: "2030-01-01T00:00:00.000Z",
+        projectScopeId: "33333333-3333-4333-8333-333333333333",
+        providers: ["openai"],
+        routeId: "11111111-1111-4111-8111-111111111111",
+      } : undefined,
+      scheduler,
+      upstreamOrigin: "https://api.openai.com",
+    });
+    const response = await app.request("http://127.0.0.1/openai/scoped-token/v1/responses", {
+      body: JSON.stringify({ model: "gpt-test" }),
+      method: "POST",
+    });
+    await scheduler.drain();
+
+    expect(response.status).toBe(200);
+    expect(captures[0]).toMatchObject({
+      captureRunId: "22222222-2222-4222-8222-222222222222",
+      client: "codex",
+      projectScopeId: "33333333-3333-4333-8333-333333333333",
+    });
+  });
+
   test("preserves provider response and captures an eligible synthetic exchange", async () => {
     const scheduler = createGatewayScheduler();
     const captures: ObservedProviderExchange[] = [];
