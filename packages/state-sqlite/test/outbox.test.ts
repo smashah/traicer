@@ -103,7 +103,7 @@ describe("durable manifest outbox", () => {
           "SELECT count(*) AS count FROM __drizzle_migrations"
         )
         .get()?.count
-    ).toBe(1);
+    ).toBe(2);
     verified.close();
   });
 

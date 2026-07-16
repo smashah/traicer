@@ -69,6 +69,26 @@ describe("privacy pipeline", () => {
     );
   });
 
+  test("puts only opaque project and run identifiers in scoped traces", () => {
+    const scoped = redactExchange({
+      ...observed,
+      captureRunId: "22222222-2222-4222-8222-222222222222",
+      projectScopeId: "33333333-3333-4333-8333-333333333333",
+    }, policy).trace;
+    expect(scoped).toMatchObject({
+      captureRunId: "22222222-2222-4222-8222-222222222222",
+      projectScopeId: "33333333-3333-4333-8333-333333333333",
+      schema: "traice.trace/2",
+    });
+  });
+
+  test("rejects a partial scoped context", () => {
+    expect(() => redactExchange({
+      ...observed,
+      projectScopeId: "33333333-3333-4333-8333-333333333333",
+    }, policy)).toThrow("requires both");
+  });
+
   test("rejects provider errors when inventory is restricted to successful responses", () => {
     expect(() => redactExchange({ ...observed, responseStatus: 429 }, policy)).toThrow(
       "Capture policy rejected"

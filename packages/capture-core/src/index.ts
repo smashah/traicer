@@ -7,7 +7,7 @@ import type {
   CaptureOutcome,
   CapturePolicyV1,
   ObservedProviderExchange,
-  SafeManifestV1,
+  SafeManifest,
   SafeUploadReceipt,
   SignedSafeManifest,
 } from "@traice/domain";
@@ -62,7 +62,14 @@ export interface CaptureEngineHooks {
     readonly clientManifestId: string;
     readonly traceId: string;
   }) => void;
-  readonly observed?: (input: { readonly capturedAt: string; readonly traceId: string }) => void;
+  readonly observed?: (input: {
+    readonly captureRunId?: string;
+    readonly capturedAt: string;
+    readonly client: string;
+    readonly projectScopeId?: string;
+    readonly provider: ObservedProviderExchange["provider"];
+    readonly traceId: string;
+  }) => void;
 }
 
 const coarseHour = (value: string): string => {
@@ -86,10 +93,17 @@ export const createCaptureEngine = (
   hooks: CaptureEngineHooks = {}
 ) => ({
   capture: async (observed: ObservedProviderExchange): Promise<CaptureOutcome> => {
-    hooks.observed?.({ capturedAt: observed.capturedAt, traceId: observed.traceId });
     let stage: "privacy" | "encryption" | "storage" | "manifest" = "privacy";
     try {
       const { report, trace } = redactExchange(observed, config.policy);
+      hooks.observed?.({
+        ...(observed.captureRunId ? { captureRunId: observed.captureRunId } : {}),
+        capturedAt: observed.capturedAt,
+        client: observed.client,
+        ...(observed.projectScopeId ? { projectScopeId: observed.projectScopeId } : {}),
+        provider: observed.provider,
+        traceId: observed.traceId,
+      });
       const plaintext = canonicalBytes(trace);
       stage = "encryption";
       const encrypted = await encryptTraceEnvelope({
@@ -111,7 +125,7 @@ export const createCaptureEngine = (
         traceId: observed.traceId,
       });
 
-      const manifest: SafeManifestV1 = {
+      const manifest = {
       adapter: observed.adapter,
       bucketAlias: config.bucketAlias,
       canonicalHash: encrypted.canonicalHash,
@@ -134,14 +148,16 @@ export const createCaptureEngine = (
         profile: report.profile,
         replacementCounts: report.replacements,
       },
-      schema: "traice.manifest/1",
+      ...(trace.schema === "traice.trace/2"
+        ? { projectScopeId: trace.projectScopeId, schema: "traice.manifest/2" as const }
+        : { schema: "traice.manifest/1" as const }),
       signerKeyId: config.signerKeyId,
       storageCapabilityProfileId: receipt.storageCapabilityProfileId,
       storageIntegrityAssurance: receipt.integrityAssurance,
       storageKind: "s3_compatible",
       toolCallCount: countToolCalls(trace),
       verificationTier: "self_attested",
-      };
+      } satisfies SafeManifest;
       const signature = await signBytes(
         config.signingPrivateKey,
         canonicalBytes(manifest)

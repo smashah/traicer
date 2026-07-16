@@ -28,5 +28,19 @@ export const operationalMigrations = [
       "\nCREATE TABLE IF NOT EXISTS `trace_lifecycle` (\n\t`canonical_hash` text,\n\t`captured_at` text NOT NULL,\n\t`ciphertext_hash` text,\n\t`client_manifest_id` text,\n\t`failure_stage` text,\n\t`safe_error_code` text,\n\t`state` text NOT NULL,\n\t`trace_id` text PRIMARY KEY NOT NULL,\n\t`updated_at` integer NOT NULL,\n\tCONSTRAINT \"trace_lifecycle_state_check\" CHECK(\"trace_lifecycle\".\"state\" in ('observed', 'encrypted', 'manifest_pending', 'committed', 'failed'))\n);\n"
     ],
     "tag": "0000_early_cardiac"
+  },
+  {
+    "bps": true,
+    "folderMillis": 1784227852780,
+    "hash": "f522e4a64377539aeacff048a9882bb3d1943e11aab88dea82eed3981cb1c451",
+    "idx": 1,
+    "sql": [
+      "ALTER TABLE `trace_lifecycle` ADD `capture_run_id` text;",
+      "\nALTER TABLE `trace_lifecycle` ADD `client` text;",
+      "\nALTER TABLE `trace_lifecycle` ADD `project_scope_id` text;",
+      "\nALTER TABLE `trace_lifecycle` ADD `provider` text;",
+      "\nCREATE INDEX `trace_lifecycle_project_scope_idx` ON `trace_lifecycle` (`project_scope_id`,`captured_at`);"
+    ],
+    "tag": "0001_fast_queen_noir"
   }
 ] satisfies OperationalMigration[];

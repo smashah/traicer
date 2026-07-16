@@ -61,12 +61,14 @@ describe("capture engine", () => {
     );
     const observed: ObservedProviderExchange = {
       adapter: "openai-responses/1",
+      captureRunId: "22222222-2222-4222-8222-222222222222",
       capturedAt: "2026-07-13T12:41:20.000Z",
       client: "codex",
       method: "POST",
       model: "gpt-test",
       path: "/v1/responses",
       provider: "openai",
+      projectScopeId: "33333333-3333-4333-8333-333333333333",
       requestBody: {
         api_key: "sk-abcdefghijklmnop",
         input: "RAW_CANARY_DO_NOT_EGRESS seller@example.com",
@@ -90,6 +92,10 @@ describe("capture engine", () => {
     expect(egress).not.toContain("RAW_CANARY_DO_NOT_EGRESS");
     expect(egress).not.toContain("provider-secret");
     expect(egress).not.toContain("seller@example.com");
+    expect(outcome.manifest.manifest).toMatchObject({
+      projectScopeId: "33333333-3333-4333-8333-333333333333",
+      schema: "traice.manifest/2",
+    });
     expect(
       await verifyBytes(
         keys.publicKey,

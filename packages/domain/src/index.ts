@@ -53,12 +53,14 @@ export interface CapturePolicyV1 {
 
 export interface ObservedProviderExchange {
   readonly adapter: string;
+  readonly captureRunId?: string;
   readonly capturedAt: string;
   readonly client: string;
   readonly method: "POST";
   readonly model: string;
   readonly path: string;
   readonly provider: CaptureProvider;
+  readonly projectScopeId?: string;
   readonly requestBody: unknown;
   readonly requestHeaders: Readonly<Record<string, string>>;
   readonly responseBody: unknown;
@@ -95,6 +97,14 @@ export interface CanonicalTraceV1 {
     readonly outputTokens: number;
   };
 }
+
+export interface CanonicalTraceV2 extends Omit<CanonicalTraceV1, "schema"> {
+  readonly schema: "traice.trace/2";
+  readonly captureRunId: string;
+  readonly projectScopeId: string;
+}
+
+export type CanonicalTrace = CanonicalTraceV1 | CanonicalTraceV2;
 
 export type StorageIntegrityAssurance = "provider_checksum" | "full_readback";
 
@@ -137,8 +147,15 @@ export interface SafeManifestV1 {
   readonly verificationTier: "self_attested";
 }
 
+export interface SafeManifestV2 extends Omit<SafeManifestV1, "schema"> {
+  readonly schema: "traice.manifest/2";
+  readonly projectScopeId: string;
+}
+
+export type SafeManifest = SafeManifestV1 | SafeManifestV2;
+
 export interface SignedSafeManifest {
-  readonly manifest: SafeManifestV1;
+  readonly manifest: SafeManifest;
   readonly signature: string;
 }
 

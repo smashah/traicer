@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 
 import type { MarketplaceManifestSink } from "@traice/capture-core";
-import type { SignedSafeManifest } from "@traice/domain";
+import type { CaptureProvider, SignedSafeManifest } from "@traice/domain";
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -77,10 +77,16 @@ export const openOperationalState = (path: string) => {
     trimEvents();
   };
 
-  const recordObserved = (traceId: string, capturedAt: string): void => {
+  const recordObserved = (traceId: string, capturedAt: string, context: {
+    readonly captureRunId?: string;
+    readonly client?: string;
+    readonly projectScopeId?: string;
+    readonly provider?: CaptureProvider;
+  } = {}): void => {
     db.insert(traceLifecycle)
       .values({
         capturedAt,
+        ...context,
         state: "observed",
         traceId,
         updatedAt: Date.now(),
@@ -168,8 +174,13 @@ export const openOperationalState = (path: string) => {
             canonicalHash: signed.manifest.canonicalHash,
             capturedAt: signed.manifest.capturedAt,
             ciphertextHash: signed.manifest.ciphertextHash,
+            client: signed.manifest.client,
             clientManifestId: signed.manifest.clientManifestId,
             state: "manifest_pending",
+            ...(signed.manifest.schema === "traice.manifest/2"
+              ? { projectScopeId: signed.manifest.projectScopeId }
+              : {}),
+            provider: signed.manifest.provider,
             traceId,
             updatedAt: now,
           })

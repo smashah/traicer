@@ -8,6 +8,13 @@
       "when": 1783975442221,
       "tag": "0000_early_cardiac",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784227852780,
+      "tag": "0001_fast_queen_noir",
+      "breakpoints": true
     }
   ]
 }

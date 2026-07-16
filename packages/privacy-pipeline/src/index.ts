@@ -1,5 +1,5 @@
 import type {
-  CanonicalTraceV1,
+  CanonicalTrace,
   CapturePolicyV1,
   ObservedProviderExchange,
   RedactionReport,
@@ -129,7 +129,7 @@ export const canonicalBytes = (value: unknown): Uint8Array => encoder.encode(can
 export const redactExchange = (
   observed: ObservedProviderExchange,
   policy: CapturePolicyV1
-): { readonly report: RedactionReport; readonly trace: CanonicalTraceV1 } => {
+): { readonly report: RedactionReport; readonly trace: CanonicalTrace } => {
   if (
     !policy.allowedMethods.includes(observed.method) ||
     !policy.allowedPaths.includes(observed.path) ||
@@ -147,10 +147,21 @@ export const redactExchange = (
     profile: policy.redactionProfile,
     replacements: replacementCounts,
   };
+  const hasCaptureRun = observed.captureRunId !== undefined;
+  const hasProjectScope = observed.projectScopeId !== undefined;
+  if (hasCaptureRun !== hasProjectScope) {
+    throw new Error("Scoped capture requires both project scope and capture run IDs");
+  }
+  const scoped = hasCaptureRun && hasProjectScope;
   return {
     report,
     trace: {
       adapter: observed.adapter,
+      ...(scoped ? {
+        captureRunId: observed.captureRunId!,
+        projectScopeId: observed.projectScopeId!,
+        schema: "traice.trace/2" as const,
+      } : { schema: "traice.trace/1" as const }),
       capturedAt: observed.capturedAt,
       client: observed.client,
       model: observed.model,
@@ -158,7 +169,6 @@ export const redactExchange = (
       redaction: report,
       request,
       response: { body: response, status: observed.responseStatus },
-      schema: "traice.trace/1",
       traceId: observed.traceId,
       usage: observed.usage,
     },

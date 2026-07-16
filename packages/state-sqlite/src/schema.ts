@@ -36,16 +36,21 @@ export const traceLifecycle = sqliteTable(
   "trace_lifecycle",
   {
     canonicalHash: text("canonical_hash"),
+    captureRunId: text("capture_run_id"),
     capturedAt: text("captured_at").notNull(),
     ciphertextHash: text("ciphertext_hash"),
     clientManifestId: text("client_manifest_id"),
+    client: text("client"),
     failureStage: text("failure_stage"),
     safeErrorCode: text("safe_error_code"),
+    projectScopeId: text("project_scope_id"),
+    provider: text("provider", { enum: ["anthropic", "openai"] }),
     state: text("state", { enum: lifecycleStates }).notNull(),
     traceId: text("trace_id").primaryKey(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
+    index("trace_lifecycle_project_scope_idx").on(table.projectScopeId, table.capturedAt),
     check(
       "trace_lifecycle_state_check",
       sql`${table.state} in ('observed', 'encrypted', 'manifest_pending', 'committed', 'failed')`
