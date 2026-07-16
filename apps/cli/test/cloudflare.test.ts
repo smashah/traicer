@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   discoverWranglerIdentity,
+  findWranglerExecutables,
   parseCloudflareAccountId,
   parseWranglerIdentity,
 } from "../src/cloudflare";
@@ -45,7 +46,7 @@ describe("Wrangler account discovery", () => {
   test("runs the installed Wrangler CLI with JSON output", async () => {
     const commands: string[][] = [];
     const result = await discoverWranglerIdentity({
-      findWrangler: () => "/usr/local/bin/wrangler",
+      findWranglers: () => ["/usr/local/bin/wrangler"],
       runWrangler: async (command) => {
         commands.push(command);
         return { exitCode: 0, stdout: JSON.stringify(whoami) };
@@ -59,9 +60,34 @@ describe("Wrangler account discovery", () => {
     });
   });
 
+  test("skips an incompatible PATH candidate and uses the next Wrangler", async () => {
+    const commands: string[][] = [];
+    const result = await discoverWranglerIdentity({
+      findWranglers: () => [
+        "/Users/seller/node_modules/.bin/wrangler",
+        "/opt/homebrew/bin/wrangler",
+      ],
+      runWrangler: async (command) => {
+        commands.push(command);
+        return command[0]?.includes("node_modules")
+          ? { exitCode: 1, stdout: "" }
+          : { exitCode: 0, stdout: JSON.stringify(whoami) };
+      },
+    });
+
+    expect(commands).toEqual([
+      ["/Users/seller/node_modules/.bin/wrangler", "whoami", "--json"],
+      ["/opt/homebrew/bin/wrangler", "whoami", "--json"],
+    ]);
+    expect(result).toEqual({
+      identity,
+      status: "authenticated",
+    });
+  });
+
   test("falls back cleanly when Wrangler is unavailable", async () => {
     expect(await discoverWranglerIdentity({
-      findWrangler: () => undefined,
+      findWranglers: () => [],
       runWrangler: async () => {
         throw new Error("should not run");
       },
@@ -70,8 +96,40 @@ describe("Wrangler account discovery", () => {
 
   test("does not expose Wrangler errors when authentication fails", async () => {
     expect(await discoverWranglerIdentity({
-      findWrangler: () => "wrangler",
+      findWranglers: () => ["wrangler"],
       runWrangler: async () => ({ exitCode: 1, stdout: "sensitive diagnostics" }),
     })).toEqual({ status: "unauthenticated" });
+  });
+
+  test("enumerates executable PATH candidates in order and removes aliases", () => {
+    expect(findWranglerExecutables({
+      environment: { PATH: "/first:/second:/alias" },
+      platform: "darwin",
+      resolveExecutable: (candidate) => {
+        if (candidate === "/first/wrangler") return "/real/old-wrangler";
+        if (candidate === "/second/wrangler") return "/real/new-wrangler";
+        if (candidate === "/alias/wrangler") return "/real/new-wrangler";
+        return undefined;
+      },
+    })).toEqual([
+      "/first/wrangler",
+      "/second/wrangler",
+    ]);
+  });
+
+  test("uses PATHEXT when enumerating Windows PATH candidates", () => {
+    expect(findWranglerExecutables({
+      environment: {
+        PATH: "C:\\first;C:\\second",
+        PATHEXT: ".CMD;.EXE",
+      },
+      platform: "win32",
+      resolveExecutable: (candidate) => candidate.endsWith("wrangler.CMD")
+        ? candidate.toLowerCase()
+        : undefined,
+    })).toEqual([
+      "C:\\first\\wrangler.CMD",
+      "C:\\second\\wrangler.CMD",
+    ]);
   });
 });

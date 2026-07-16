@@ -1,3 +1,6 @@
+import { accessSync, constants, realpathSync } from "node:fs";
+import { delimiter, join, win32 } from "node:path";
+
 declare const cloudflareAccountIdBrand: unique symbol;
 
 export type CloudflareAccountId = string & {
@@ -19,15 +22,65 @@ export type WranglerDiscovery =
   | { readonly status: "invalid-response" | "unauthenticated" | "unavailable" };
 
 interface WranglerDependencies {
-  readonly findWrangler: () => string | undefined;
+  readonly findWranglers: () => readonly string[];
   readonly runWrangler: (
     command: string[]
   ) => Promise<{ readonly exitCode: number; readonly stdout: string }>;
 }
 
+interface WranglerSearchOptions {
+  readonly environment?: Readonly<Record<string, string | undefined>>;
+  readonly platform?: NodeJS.Platform;
+  readonly resolveExecutable?: (candidate: string) => string | undefined;
+}
+
 const accountIdPattern = /^[0-9a-f]{32}$/i;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const defaultResolveExecutable = (candidate: string): string | undefined => {
+  try {
+    accessSync(candidate, constants.X_OK);
+    return realpathSync(candidate);
+  } catch {
+    return undefined;
+  }
+};
+
+export const findWranglerExecutables = ({
+  environment = process.env,
+  platform = process.platform,
+  resolveExecutable = defaultResolveExecutable,
+}: WranglerSearchOptions = {}): readonly string[] => {
+  const pathEntry = Object.entries(environment)
+    .find(([key]) => key.toLowerCase() === "path")?.[1];
+  if (!pathEntry) return [];
+
+  const pathDelimiter = platform === "win32" ? ";" : delimiter;
+  const joinPath = platform === "win32" ? win32.join : join;
+  const extensions = platform === "win32"
+    ? (Object.entries(environment)
+        .find(([key]) => key.toLowerCase() === "pathext")?.[1]
+        ?? ".COM;.EXE;.BAT;.CMD")
+      .split(";")
+      .filter(Boolean)
+    : [""];
+  const seen = new Set<string>();
+  const executables: string[] = [];
+
+  for (const directory of pathEntry.split(pathDelimiter)) {
+    if (!directory) continue;
+    for (const extension of extensions) {
+      const candidate = joinPath(directory, `wrangler${extension}`);
+      const resolved = resolveExecutable(candidate);
+      if (!resolved || seen.has(resolved)) continue;
+      seen.add(resolved);
+      executables.push(candidate);
+    }
+  }
+
+  return executables;
+};
 
 export const parseCloudflareAccountId = (value: string): CloudflareAccountId => {
   const normalized = value.trim().toLowerCase();
@@ -61,7 +114,7 @@ export const parseWranglerIdentity = (value: unknown): WranglerIdentity => {
 };
 
 const defaultDependencies: WranglerDependencies = {
-  findWrangler: () => Bun.which("wrangler") ?? undefined,
+  findWranglers: findWranglerExecutables,
   runWrangler: async (command) => {
     const child = Bun.spawn(command, {
       stderr: "ignore",
@@ -79,17 +132,22 @@ const defaultDependencies: WranglerDependencies = {
 export const discoverWranglerIdentity = async (
   dependencies: WranglerDependencies = defaultDependencies
 ): Promise<WranglerDiscovery> => {
-  const executable = dependencies.findWrangler();
-  if (!executable) return { status: "unavailable" };
+  const executables = dependencies.findWranglers();
+  if (executables.length === 0) return { status: "unavailable" };
 
-  try {
-    const result = await dependencies.runWrangler([executable, "whoami", "--json"]);
-    if (result.exitCode !== 0) return { status: "unauthenticated" };
-    return {
-      identity: parseWranglerIdentity(JSON.parse(result.stdout) as unknown),
-      status: "authenticated",
-    };
-  } catch {
-    return { status: "invalid-response" };
+  let invalidResponse = false;
+  for (const executable of executables) {
+    try {
+      const result = await dependencies.runWrangler([executable, "whoami", "--json"]);
+      if (result.exitCode !== 0) continue;
+      return {
+        identity: parseWranglerIdentity(JSON.parse(result.stdout) as unknown),
+        status: "authenticated",
+      };
+    } catch {
+      invalidResponse = true;
+    }
   }
+
+  return { status: invalidResponse ? "invalid-response" : "unauthenticated" };
 };
