@@ -31,9 +31,12 @@ Use the CLI for file-based configuration, automated initialization, or Alchemy s
 ```sh
 bunx @traice-market/traicer init \
   --storage cloudflare-r2 \
-  --account-id <cloudflare-account-id> \
   --provider anthropic
 ```
+
+The provider choice configures one capture adapter because Anthropic and OpenAI use different request paths and upstream routing. Your coding client keeps using its existing provider credentials.
+
+If Wrangler is installed and authenticated, Traicer tries to list the public Cloudflare accounts returned by `wrangler whoami --json`. Choose the account ID to write into the R2 endpoint and generated Alchemy stack. If Wrangler is unavailable, enter the public account ID manually or pass it with `--account-id`. Alchemy authenticates independently when you deploy.
 
 Edit `~/.config/traicer/.env.local` and fill only the external marketplace and storage credential fields. Leave generated `varlock(...)` references unchanged, then run:
 

@@ -6,6 +6,11 @@ import { createInterface } from "node:readline/promises";
 import packageJson from "../package.json" with { type: "json" };
 
 import {
+  discoverWranglerIdentity,
+  parseCloudflareAccountId,
+  type CloudflareAccountId,
+} from "./cloudflare";
+import {
   createBootstrap,
   daemonEnvironment,
   readTraicerConfig,
@@ -24,9 +29,14 @@ const flag = (name: string): string | undefined => {
 const hasFlag = (name: string): boolean => args.includes(name);
 const defaultDirectory = resolve(homedir(), ".config", "traicer");
 
-const run = async (commandArgs: string[], cwd?: string): Promise<number> => {
+const run = async (
+  commandArgs: string[],
+  cwd?: string,
+  environment?: Readonly<Record<string, string>>
+): Promise<number> => {
   const child = Bun.spawn(commandArgs, {
     ...(cwd === undefined ? {} : { cwd }),
+    ...(environment === undefined ? {} : { env: { ...process.env, ...environment } }),
     stderr: "inherit",
     stdin: "inherit",
     stdout: "inherit",
@@ -53,20 +63,61 @@ const ask = async (question: string, fallback?: string): Promise<string> => {
   return answer || fallback || "";
 };
 
+const chooseCloudflareAccount = async (): Promise<CloudflareAccountId> => {
+  const discovery = await discoverWranglerIdentity();
+  if (discovery.status === "authenticated") {
+    const { accounts, email } = discovery.identity;
+    if (email) console.log(`Wrangler is authenticated as ${email}`);
+    if (accounts.length === 1) {
+      const account = accounts[0]!;
+      console.log(`Using Cloudflare account ${account.name} (${account.id})`);
+      return account.id;
+    }
+    if (accounts.length > 1) {
+      if (hasFlag("--yes")) {
+        throw new Error("Wrangler found multiple Cloudflare accounts; pass --account-id to choose one with --yes");
+      }
+      console.log("Choose the Cloudflare account for Traicer storage:");
+      accounts.forEach((account, index) => {
+        console.log(`  ${index + 1}. ${account.name} (${account.id})`);
+      });
+      const answer = await ask("Cloudflare account number");
+      const selectedIndex = Number(answer) - 1;
+      const account = Number.isInteger(selectedIndex) ? accounts[selectedIndex] : undefined;
+      if (!account) throw new Error(`Expected an account number from 1 to ${accounts.length}`);
+      return account.id;
+    }
+    console.log("Wrangler returned no accessible Cloudflare accounts; enter the account ID manually.");
+  } else if (discovery.status === "unavailable") {
+    console.log("Wrangler was not found; enter the Cloudflare account ID manually.");
+  } else if (discovery.status === "unauthenticated") {
+    console.log("Wrangler is not authenticated; run 'wrangler login' to enable account selection, or enter the account ID manually.");
+  } else {
+    console.log("Wrangler account discovery failed; enter the Cloudflare account ID manually.");
+  }
+
+  return parseCloudflareAccountId(await ask("Cloudflare account ID"));
+};
+
 const initialize = async () => {
   const storage = (flag("--storage") ?? await choose(
     "Storage provider",
     ["cloudflare-r2", "aws-s3", "existing-s3"] as const,
     "cloudflare-r2"
   )) as StorageProvider;
-  const provider = (flag("--provider") ?? await choose(
-    "Capture provider",
+  const suppliedProvider = flag("--provider");
+  if (!suppliedProvider && !hasFlag("--yes")) {
+    console.log("Traicer configures one capture adapter per configuration because each AI provider uses different request paths and upstream routing. Your coding client keeps its existing provider credentials.");
+  }
+  const provider = (suppliedProvider ?? await choose(
+    "AI capture adapter",
     ["anthropic", "openai"] as const,
     "anthropic"
   )) as Provider;
   const directory = resolve(flag("--directory") ?? defaultDirectory);
-  const accountId = flag("--account-id") ?? (
-    storage === "cloudflare-r2" ? await ask("Cloudflare account ID") : undefined
+  const suppliedAccountId = flag("--account-id");
+  const accountId = (suppliedAccountId === undefined ? undefined : parseCloudflareAccountId(suppliedAccountId)) ?? (
+    storage === "cloudflare-r2" ? await chooseCloudflareAccount() : undefined
   );
   const bucket = flag("--bucket") ?? (
     storage === "existing-s3" ? await ask("Existing bucket name") : undefined
@@ -102,7 +153,10 @@ const initialize = async () => {
     const deploy = hasFlag("--deploy") || (!hasFlag("--yes") && await choose("Deploy storage now", ["yes", "no"] as const, "no") === "yes");
     if (deploy) {
       if (await run(["pnpm", "install"], result.infrastructureDirectory) !== 0) process.exit(1);
-      if (await run(["pnpm", "alchemy", "deploy"], result.infrastructureDirectory) !== 0) process.exit(1);
+      const alchemyEnvironment = storage === "cloudflare-r2" && options.accountId
+        ? { CLOUDFLARE_ACCOUNT_ID: options.accountId }
+        : undefined;
+      if (await run(["pnpm", "alchemy", "deploy"], result.infrastructureDirectory, alchemyEnvironment) !== 0) process.exit(1);
     }
   }
   console.log(`Add the marketplace and S3 credentials to .env.local, then run: traicer secrets --directory ${JSON.stringify(directory)}`);
@@ -148,7 +202,7 @@ const start = async () => {
   process.exitCode = code;
 };
 
-const help = () => console.log(`Traicer ${packageJson.version}\n\nUsage:\n  traicer init [--storage cloudflare-r2|aws-s3|existing-s3] [options]\n  traicer secrets [--directory <path>]\n  traicer start [--directory <path>]\n\nInit options:\n  --account-id <id>       Cloudflare account ID for R2\n  --bucket <name>         Bucket name (required for existing S3)\n  --deploy                Confirm and run the Alchemy deployment\n  --directory <path>      Config directory (default: ~/.config/traicer)\n  --endpoint <url>        Existing S3-compatible endpoint\n  --marketplace-url <url> Traice Market API base URL\n  --provider <name>       anthropic or openai\n  --region <region>       AWS/signing region (default: us-east-1)\n  --yes                   Accept safe defaults; never implies --deploy\n`);
+const help = () => console.log(`Traicer ${packageJson.version}\n\nUsage:\n  traicer init [--storage cloudflare-r2|aws-s3|existing-s3] [options]\n  traicer secrets [--directory <path>]\n  traicer start [--directory <path>]\n\nInit options:\n  --account-id <id>       Cloudflare account ID for R2\n  --bucket <name>         Bucket name (required for existing S3)\n  --deploy                Confirm and run the Alchemy deployment\n  --directory <path>      Config directory (default: ~/.config/traicer)\n  --endpoint <url>        Existing S3-compatible endpoint\n  --marketplace-url <url> Traice Market API base URL\n  --provider <name>       Capture adapter and upstream routing: anthropic or openai\n  --region <region>       AWS/signing region (default: us-east-1)\n  --yes                   Accept safe defaults; never implies --deploy\n\nTraicer configures one AI capture adapter per configuration. Your coding client keeps its existing provider credentials.\n`);
 
 try {
   if (command === "init") await initialize();

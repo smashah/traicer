@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
+import { parseCloudflareAccountId } from "../src/cloudflare";
 import { daemonEnvironment } from "../src/config";
 import { createScaffold } from "../src/scaffold";
 
@@ -24,8 +25,9 @@ describe("Traicer init scaffold", () => {
 
   test("creates an R2 stack and writes only encrypted device secrets", async () => {
     const directory = await mkdtemp(join(tmpdir(), "traicer-cli-"));
+    const accountId = parseCloudflareAccountId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     await createScaffold({
-      accountId: "public-account-id",
+      accountId,
       bucket: "seller-traices",
       directory,
       marketplaceApiBaseUrl: "https://api.traice.market",
@@ -46,11 +48,12 @@ describe("Traicer init scaffold", () => {
       readFile(join(directory, "infra/alchemy.run.ts"), "utf8"),
       readFile(join(directory, "infra/pnpm-workspace.yaml"), "utf8"),
     ]);
-    expect(config).toContain("https://public-account-id.r2.cloudflarestorage.com");
+    expect(config).toContain(`https://${accountId}.r2.cloudflarestorage.com`);
     expect(env).toContain("varlock(\"encrypted:");
     expect(env).not.toContain(keyPair.privateKey);
     expect(schema).toContain("TRAICER_MARKETPLACE_CREDENTIAL=");
     expect(schema).not.toContain("+TRAICER_");
+    expect(stack).toContain(`process.env.CLOUDFLARE_ACCOUNT_ID ??= "${accountId}"`);
     expect(stack).toContain('Cloudflare.R2.Bucket("SellerTraces"');
     expect(stack).toContain('name: "seller-traices"');
     expect(workspace).toContain("onlyBuiltDependencies:");

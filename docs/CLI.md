@@ -16,8 +16,8 @@ You can also install the package with your normal npm-compatible package manager
 
 ```text
 --storage <provider>      cloudflare-r2, aws-s3, or existing-s3
---provider <provider>    anthropic or openai
---account-id <id>        Cloudflare account ID; required for cloudflare-r2
+--provider <provider>    Capture adapter and upstream routing: anthropic or openai
+--account-id <id>        Cloudflare account ID override for cloudflare-r2
 --bucket <name>          Existing bucket name; required for existing-s3
 --endpoint <url>         HTTPS S3-compatible endpoint; required for existing-s3
 --region <region>        Signing region; R2 uses auto, other modes default to us-east-1
@@ -29,16 +29,19 @@ You can also install the package with your normal npm-compatible package manager
 
 When interactive input is available, omitted values are prompted. With `--yes`, required values without safe defaults remain empty and validation fails rather than inventing credentials or account identifiers.
 
+The provider choice scopes this configuration to one capture adapter. Anthropic and OpenAI use different accepted request paths, client labels, and upstream origins, while the coding client continues to supply its existing provider credentials.
+
 ### Cloudflare R2
 
 ```sh
 traicer init \
   --storage cloudflare-r2 \
-  --account-id <cloudflare-account-id> \
   --provider anthropic
 ```
 
-The Cloudflare account ID is public account metadata, not an API token. `init` generates an Alchemy v2 R2 stack under `infra/`; add `--deploy` only when you intend to create the bucket in that account.
+The Cloudflare account ID is public account metadata, not an API token. When `--account-id` is omitted, `init` tries `wrangler whoami --json`: one returned account is selected automatically, while multiple accounts are shown as a numbered choice. If Wrangler is missing or unauthenticated, `init` falls back to manual account ID entry.
+
+Traicer writes the selected ID into the local R2 endpoint and generated Alchemy stack, and passes it as `CLOUDFLARE_ACCOUNT_ID` when you approve an immediate deployment. Alchemy still handles its own authentication and deployment process; Traicer does not extract or reuse Wrangler's OAuth token.
 
 ### AWS S3
 

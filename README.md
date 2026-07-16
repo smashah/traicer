@@ -53,9 +53,12 @@ Generate a configuration and a Cloudflare R2 infrastructure project without depl
 ```sh
 bunx @traice-market/traicer init \
   --storage cloudflare-r2 \
-  --account-id <cloudflare-account-id> \
   --provider anthropic
 ```
+
+`--provider` selects the capture adapter because Anthropic and OpenAI use different request paths and upstream origins. Your coding client keeps its existing provider credentials.
+
+For R2, `init` tries to read the public account list from an installed, authenticated Wrangler CLI. It writes your selection into the local R2 endpoint and generated Alchemy stack. Pass `--account-id <cloudflare-account-id>` to skip discovery. Alchemy handles deployment authentication separately; Traicer does not read or reuse Wrangler's OAuth token.
 
 Add your marketplace and storage credentials to `~/.config/traicer/.env.local`, then protect the secret values and start Traicer:
 

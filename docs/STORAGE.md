@@ -37,9 +37,12 @@ The AWS SDK may express HEAD through the same `s3:GetObject` permission used for
 ```sh
 traicer init \
   --storage cloudflare-r2 \
-  --account-id <cloudflare-account-id> \
   --provider anthropic
 ```
+
+Traicer tries `wrangler whoami --json` to read public account metadata from an installed, authenticated Wrangler CLI, then asks which account ID to use. Pass `--account-id <cloudflare-account-id>` to bypass discovery. The selected ID is written into the S3 endpoint and generated Alchemy stack, and it is passed as `CLOUDFLARE_ACCOUNT_ID` for an immediate deployment.
+
+Alchemy performs its own authentication and deployment. Traicer does not copy Wrangler's OAuth token or turn the account selection into R2 API credentials.
 
 This writes an Alchemy v2 R2 stack under `~/.config/traicer/infra`. It does not deploy until you pass `--deploy` or confirm the interactive prompt.
 

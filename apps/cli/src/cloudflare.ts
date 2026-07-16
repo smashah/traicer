@@ -1,0 +1,95 @@
+declare const cloudflareAccountIdBrand: unique symbol;
+
+export type CloudflareAccountId = string & {
+  readonly [cloudflareAccountIdBrand]: true;
+};
+
+export interface CloudflareAccount {
+  readonly id: CloudflareAccountId;
+  readonly name: string;
+}
+
+export interface WranglerIdentity {
+  readonly accounts: readonly CloudflareAccount[];
+  readonly email?: string;
+}
+
+export type WranglerDiscovery =
+  | { readonly identity: WranglerIdentity; readonly status: "authenticated" }
+  | { readonly status: "invalid-response" | "unauthenticated" | "unavailable" };
+
+interface WranglerDependencies {
+  readonly findWrangler: () => string | undefined;
+  readonly runWrangler: (
+    command: string[]
+  ) => Promise<{ readonly exitCode: number; readonly stdout: string }>;
+}
+
+const accountIdPattern = /^[0-9a-f]{32}$/i;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export const parseCloudflareAccountId = (value: string): CloudflareAccountId => {
+  const normalized = value.trim().toLowerCase();
+  if (!accountIdPattern.test(normalized)) {
+    throw new Error("Expected a 32-character Cloudflare account ID");
+  }
+  return normalized as CloudflareAccountId;
+};
+
+export const parseWranglerIdentity = (value: unknown): WranglerIdentity => {
+  if (!isRecord(value) || value.loggedIn !== true || !Array.isArray(value.accounts)) {
+    throw new Error("Wrangler returned unexpected account data");
+  }
+
+  const accounts = value.accounts.map((account) => {
+    if (
+      !isRecord(account)
+      || typeof account.id !== "string"
+      || typeof account.name !== "string"
+      || account.name.trim().length === 0
+    ) {
+      throw new Error("Wrangler returned unexpected account data");
+    }
+    return { id: parseCloudflareAccountId(account.id), name: account.name.trim() };
+  });
+  const email = typeof value.email === "string" && value.email.trim().length > 0
+    ? value.email.trim()
+    : undefined;
+
+  return { accounts, ...(email === undefined ? {} : { email }) };
+};
+
+const defaultDependencies: WranglerDependencies = {
+  findWrangler: () => Bun.which("wrangler") ?? undefined,
+  runWrangler: async (command) => {
+    const child = Bun.spawn(command, {
+      stderr: "ignore",
+      stdin: "ignore",
+      stdout: "pipe",
+    });
+    const [exitCode, stdout] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+    ]);
+    return { exitCode, stdout };
+  },
+};
+
+export const discoverWranglerIdentity = async (
+  dependencies: WranglerDependencies = defaultDependencies
+): Promise<WranglerDiscovery> => {
+  const executable = dependencies.findWrangler();
+  if (!executable) return { status: "unavailable" };
+
+  try {
+    const result = await dependencies.runWrangler([executable, "whoami", "--json"]);
+    if (result.exitCode !== 0) return { status: "unauthenticated" };
+    return {
+      identity: parseWranglerIdentity(JSON.parse(result.stdout) as unknown),
+      status: "authenticated",
+    };
+  } catch {
+    return { status: "invalid-response" };
+  }
+};

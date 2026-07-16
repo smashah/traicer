@@ -9,7 +9,6 @@ Traicer is an operator preview. It requires Bun 1.3 or newer, a Traice Market de
 ```sh
 bunx @traice-market/traicer init \
   --storage cloudflare-r2 \
-  --account-id <cloudflare-account-id> \
   --provider anthropic
 
 # Fill the external credential fields in ~/.config/traicer/.env.local.
@@ -18,6 +17,8 @@ bunx @traice-market/traicer start
 ```
 
 `init` creates files but does not deploy cloud resources unless you pass `--deploy` or confirm the interactive prompt. `--yes` accepts safe defaults and never implies `--deploy`.
+
+The AI provider choice selects the capture adapter and upstream routing for this configuration. It does not replace the provider credentials already configured in your coding client.
 
 ## Commands
 
@@ -35,7 +36,7 @@ The default directory is `~/.config/traicer`. `init` refuses to overwrite `traic
 
 ```sh
 # Cloudflare R2
-traicer init --storage cloudflare-r2 --account-id <account-id>
+traicer init --storage cloudflare-r2
 
 # AWS S3
 traicer init --storage aws-s3 --region eu-west-2
@@ -48,7 +49,7 @@ traicer init \
   --region us-east-1
 ```
 
-Cloudflare R2 and AWS S3 modes generate an Alchemy stack under `<directory>/infra`. Existing S3 mode uses the supplied bucket and does not create infrastructure.
+Cloudflare R2 and AWS S3 modes generate an Alchemy stack under `<directory>/infra`. For R2, Traicer tries to read the public account list from an installed, authenticated Wrangler CLI; `--account-id` remains available as an explicit override. The selection is written into the R2 endpoint and generated stack, while Alchemy handles deployment authentication separately. Existing S3 mode uses the supplied bucket and does not create infrastructure.
 
 ## Generated files
 

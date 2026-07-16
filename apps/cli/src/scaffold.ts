@@ -3,10 +3,11 @@ import { resolve } from "node:path";
 
 import { bytesToBase64Url, generateDeviceSigningKeyPair } from "@traice/crypto";
 
+import { parseCloudflareAccountId, type CloudflareAccountId } from "./cloudflare";
 import type { Provider, StorageProvider, TraicerConfig } from "./config";
 
 export interface InitOptions {
-  readonly accountId?: string;
+  readonly accountId?: CloudflareAccountId;
   readonly bucket?: string;
   readonly directory: string;
   readonly endpoint?: string;
@@ -49,10 +50,15 @@ const infraPackage = `${JSON.stringify({
 
 const infraWorkspace = `onlyBuiltDependencies:\n  - msgpackr-extract\n  - workerd\nminimumReleaseAgeExclude:\n  - '@effect/platform-bun@4.0.0-beta.98'\n  - '@effect/platform-node@4.0.0-beta.98'\n  - '@effect/platform-node-shared@4.0.0-beta.98'\n  - 'effect@4.0.0-beta.98'\n`;
 
-const alchemyStack = (storage: StorageProvider, bucket: string): string | undefined => {
+const alchemyStack = (
+  storage: StorageProvider,
+  bucket: string,
+  accountId?: CloudflareAccountId
+): string | undefined => {
   if (storage === "existing-s3") return undefined;
   if (storage === "cloudflare-r2") {
-    return `import * as Alchemy from "alchemy";\nimport * as Cloudflare from "alchemy/Cloudflare";\nimport * as Effect from "effect/Effect";\n\nexport default Alchemy.Stack(\n  "TraicerStorage",\n  { providers: Cloudflare.providers(), state: Cloudflare.state() },\n  Effect.gen(function* () {\n    const traces = yield* Cloudflare.R2.Bucket("SellerTraces", { name: ${JSON.stringify(bucket)} });\n    return { bucketName: traces.bucketName };\n  }),\n);\n`;
+    if (!accountId) throw new Error("Cloudflare R2 setup requires --account-id");
+    return `import * as Alchemy from "alchemy";\nimport * as Cloudflare from "alchemy/Cloudflare";\nimport * as Effect from "effect/Effect";\n\nprocess.env.CLOUDFLARE_ACCOUNT_ID ??= ${JSON.stringify(accountId)};\n\nexport default Alchemy.Stack(\n  "TraicerStorage",\n  { providers: Cloudflare.providers(), state: Cloudflare.state() },\n  Effect.gen(function* () {\n    const traces = yield* Cloudflare.R2.Bucket("SellerTraces", { name: ${JSON.stringify(bucket)} });\n    return { bucketName: traces.bucketName };\n  }),\n);\n`;
   }
   return `import * as Alchemy from "alchemy";\nimport * as AWS from "alchemy/AWS";\nimport * as S3 from "alchemy/AWS/S3";\nimport * as Effect from "effect/Effect";\n\nexport default Alchemy.Stack(\n  "TraicerStorage",\n  { providers: AWS.providers(), state: AWS.state() },\n  Effect.gen(function* () {\n    const traces = yield* S3.Bucket("SellerTraces", {\n      bucketName: ${JSON.stringify(bucket)},\n      encryption: { sseAlgorithm: "AES256" },\n      publicAccessBlock: {\n        blockPublicAcls: true,\n        blockPublicPolicy: true,\n        ignorePublicAcls: true,\n        restrictPublicBuckets: true,\n      },\n      versioning: "Enabled",\n    });\n    return { bucketName: traces.bucketName };\n  }),\n);\n`;
 };
@@ -61,10 +67,11 @@ const resolveStorage = (options: InitOptions, deviceId: string) => {
   const bucket = options.bucket ?? `traicer-${deviceId.slice(0, 8)}`;
   if (options.storage === "cloudflare-r2") {
     if (!options.accountId) throw new Error("Cloudflare R2 setup requires --account-id");
+    const accountId = parseCloudflareAccountId(options.accountId);
     return {
       addressingStyle: "path" as const,
       bucket,
-      endpoint: `https://${options.accountId}.r2.cloudflarestorage.com`,
+      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
       signingRegion: "auto",
     };
   }
@@ -142,7 +149,7 @@ export const createScaffold = async (
   ]);
   await chmod(resolve(directory, ".env.local"), 0o600);
 
-  const stack = alchemyStack(options.storage, storage.bucket);
+  const stack = alchemyStack(options.storage, storage.bucket, options.accountId);
   if (!stack) return { config };
   const infrastructureDirectory = resolve(directory, "infra");
   await mkdir(infrastructureDirectory, { recursive: true });
