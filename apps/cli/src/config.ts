@@ -1,17 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { BootstrapV1 } from "@traice/api-contract";
+import type { BootstrapV2 } from "@traice/api-contract";
 
 export type Provider = "anthropic" | "openai";
 export type StorageProvider = "aws-s3" | "cloudflare-r2" | "existing-s3";
 
 export interface TraicerConfig {
   readonly capture: {
-    readonly allowedPaths: readonly string[];
-    readonly client: string;
-    readonly provider: Provider;
-    readonly upstreamOrigin: string;
+    readonly adapters: readonly {
+      readonly allowedPaths: readonly string[];
+      readonly provider: Provider;
+      readonly upstreamOrigin: string;
+    }[];
+    readonly legacyClient?: string;
   };
   readonly device: {
     readonly id: string;
@@ -21,7 +23,7 @@ export interface TraicerConfig {
   readonly marketplace: {
     readonly apiBaseUrl: string;
   };
-  readonly schema: "traicer.config/1";
+  readonly schema: "traicer.config/2";
   readonly storage: {
     readonly addressingStyle: "path" | "virtual_hosted";
     readonly bucket: string;
@@ -33,7 +35,7 @@ export interface TraicerConfig {
   };
 }
 
-const requiredSecret = (name: string): string => {
+export const requiredSecret = (name: string): string => {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required Varlock value: ${name}`);
   return value;
@@ -48,23 +50,47 @@ export const daemonEnvironment = (environment: NodeJS.ProcessEnv): Record<string
   );
 
 export const readTraicerConfig = async (directory: string): Promise<TraicerConfig> => {
-  const raw = JSON.parse(await readFile(resolve(directory, "traicer.config.json"), "utf8")) as TraicerConfig;
-  if (raw.schema !== "traicer.config/1") throw new Error("Unsupported Traicer config schema");
-  return raw;
+  const raw = JSON.parse(await readFile(resolve(directory, "traicer.config.json"), "utf8")) as TraicerConfig | {
+    readonly capture: { readonly allowedPaths: readonly string[]; readonly client?: string; readonly provider: Provider; readonly upstreamOrigin: string };
+    readonly device: TraicerConfig["device"];
+    readonly marketplace: TraicerConfig["marketplace"];
+    readonly schema: "traicer.config/1";
+    readonly storage: TraicerConfig["storage"];
+  };
+  if (raw.schema === "traicer.config/2") return raw;
+  if (raw.schema === "traicer.config/1") return {
+    capture: {
+      adapters: [{
+        allowedPaths: raw.capture.allowedPaths,
+        provider: raw.capture.provider,
+        upstreamOrigin: raw.capture.upstreamOrigin,
+      }],
+      legacyClient: "client" in raw.capture && typeof raw.capture.client === "string"
+        ? raw.capture.client
+        : "unknown",
+    },
+    device: raw.device,
+    marketplace: raw.marketplace,
+    schema: "traicer.config/2",
+    storage: raw.storage,
+  };
+  throw new Error("Unsupported Traicer config schema");
 };
 
-export const createBootstrap = (config: TraicerConfig): BootstrapV1 => ({
+export const createBootstrap = (config: TraicerConfig): BootstrapV2 => ({
   capture: {
-    adapterCapability: requiredSecret("TRAICER_ADAPTER_CAPABILITY"),
+    adapters: config.capture.adapters.map((adapter) => ({ ...adapter, allowedPaths: [...adapter.allowedPaths] })),
     bucketAlias: config.storage.bucketAlias,
-    client: config.capture.client,
     deviceId: config.device.id,
+    ...(config.capture.legacyClient ? {
+      legacyAdapterCapability: requiredSecret("TRAICER_ADAPTER_CAPABILITY"),
+      legacyClient: config.capture.legacyClient,
+    } : {}),
     marketplace: {
       apiBaseUrl: config.marketplace.apiBaseUrl,
       credential: requiredSecret("TRAICER_MARKETPLACE_CREDENTIAL"),
     },
     policy: {
-      allowedPaths: [...config.capture.allowedPaths],
       capturePolicyId: "strict-default",
       pipelineVersion: "1",
       policyVersion: "1",
@@ -85,9 +111,8 @@ export const createBootstrap = (config: TraicerConfig): BootstrapV1 => ({
       signingRegion: config.storage.signingRegion,
       storageCapabilityProfileId: `s3-compatible:${config.storage.provider}`,
     },
-    upstreamOrigin: config.capture.upstreamOrigin,
   },
   controlToken: requiredSecret("TRAICER_CONTROL_TOKEN"),
-  protocolVersion: 1,
+  protocolVersion: 2,
   vaultKey: requiredSecret("TRAICER_VAULT_KEY"),
 });

@@ -14,9 +14,12 @@ import {
   createBootstrap,
   daemonEnvironment,
   readTraicerConfig,
-  type Provider,
+  requiredSecret,
   type StorageProvider,
 } from "./config";
+import { locateDaemon } from "./daemon-locator";
+import { createHarnessLaunch } from "./harness";
+import { createProjectScopeResolver, parseProjectScopeId } from "./project-scope";
 import { createScaffold, encryptWithVarlock, type InitOptions, varlockCommand } from "./scaffold";
 
 const args = process.argv.slice(2);
@@ -105,15 +108,6 @@ const initialize = async () => {
     ["cloudflare-r2", "aws-s3", "existing-s3"] as const,
     "cloudflare-r2"
   )) as StorageProvider;
-  const suppliedProvider = flag("--provider");
-  if (!suppliedProvider && !hasFlag("--yes")) {
-    console.log("Traicer configures one capture adapter per configuration because each AI provider uses different request paths and upstream routing. Your coding client keeps its existing provider credentials.");
-  }
-  const provider = (suppliedProvider ?? await choose(
-    "AI capture adapter",
-    ["anthropic", "openai"] as const,
-    "anthropic"
-  )) as Provider;
   const directory = resolve(flag("--directory") ?? defaultDirectory);
   const suppliedAccountId = flag("--account-id");
   const accountId = (suppliedAccountId === undefined ? undefined : parseCloudflareAccountId(suppliedAccountId)) ?? (
@@ -138,7 +132,6 @@ const initialize = async () => {
     directory,
     ...(endpoint === undefined ? {} : { endpoint }),
     marketplaceApiBaseUrl,
-    provider,
     region,
     storage,
   };
@@ -202,15 +195,101 @@ const start = async () => {
   process.exitCode = code;
 };
 
-const help = () => console.log(`Traicer ${packageJson.version}\n\nUsage:\n  traicer init [--storage cloudflare-r2|aws-s3|existing-s3] [options]\n  traicer secrets [--directory <path>]\n  traicer start [--directory <path>]\n\nInit options:\n  --account-id <id>       Cloudflare account ID for R2\n  --bucket <name>         Bucket name (required for existing S3)\n  --deploy                Confirm and run the Alchemy deployment\n  --directory <path>      Config directory (default: ~/.config/traicer)\n  --endpoint <url>        Existing S3-compatible endpoint\n  --marketplace-url <url> Traice Market API base URL\n  --provider <name>       Capture adapter and upstream routing: anthropic or openai\n  --region <region>       AWS/signing region (default: us-east-1)\n  --yes                   Accept safe defaults; never implies --deploy\n\nTraicer configures one AI capture adapter per configuration. Your coding client keeps its existing provider credentials.\n`);
+const help = () => console.log(`Traicer ${packageJson.version}\n\nUsage:\n  traicer init [--storage cloudflare-r2|aws-s3|existing-s3] [options]\n  traicer secrets [--directory <path>]\n  traicer start [--directory <path>]\n\nInit options:\n  --account-id <id>       Cloudflare account ID for R2\n  --bucket <name>         Bucket name (required for existing S3)\n  --deploy                Confirm and run the Alchemy deployment\n  --directory <path>      Config directory (default: ~/.config/traicer)\n  --endpoint <url>        Existing S3-compatible endpoint\n  --marketplace-url <url> Traice Market API base URL\n  --region <region>       AWS/signing region (default: us-east-1)\n  --yes                   Accept safe defaults; never implies --deploy\n\nTraicer generates Anthropic and OpenAI route configuration over one seller-owned storage bucket.\n`);
+
+const withResolvedSecrets = async (internalCommand: "__project" | "__run") => {
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  process.exitCode = await run([
+    ...varlockCommand("run"), "--path", directory, "--inject", "vars", "--",
+    process.execPath, import.meta.path, internalCommand, ...args.slice(1),
+  ], process.cwd());
+};
+
+const projectResolved = async () => {
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  const resolver = createProjectScopeResolver({ directory, mappingKey: requiredSecret("TRAICER_PROJECT_MAPPING_KEY") });
+  const action = args[1] ?? "status";
+  if (action === "link") {
+    const projectScopeId = parseProjectScopeId(flag("--scope-id") ?? crypto.randomUUID());
+    await resolver.link(process.cwd(), projectScopeId);
+    console.log(`Linked this repository to project scope ${projectScopeId}`);
+    return;
+  }
+  if (action === "unlink") {
+    console.log(await resolver.unlink(process.cwd()) ? "Unlinked this repository" : "This repository wasn't linked");
+    return;
+  }
+  if (action === "status") {
+    const result = await resolver.resolve(process.cwd());
+    console.log(result.kind === "linked" ? `Linked to project scope ${result.projectScopeId}` : `Project status: ${result.kind}`);
+    return;
+  }
+  throw new Error(`Unknown project command: ${action}`);
+};
+
+const runResolved = async () => {
+  const separator = args.indexOf("--");
+  if (separator < 0) throw new Error("Pass a harness command after `traicer run --`");
+  const commandArgs = args.slice(separator + 1);
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  const project = await createProjectScopeResolver({ directory, mappingKey: requiredSecret("TRAICER_PROJECT_MAPPING_KEY") }).resolve(process.cwd());
+  if (project.kind !== "linked") throw new Error(`This repository isn't linked (${project.kind}); run \`traicer project link\` first`);
+  const controlToken = requiredSecret("TRAICER_CONTROL_TOKEN");
+  const daemon = await locateDaemon(directory, controlToken);
+  const provisional = createHarnessLaunch(commandArgs, { anthropic: "", openai: "" });
+  const routeId = crypto.randomUUID();
+  try {
+    const routeResponse = await fetch(`${daemon.controlBaseUrl}/v1/capture-routes`, {
+      body: JSON.stringify({
+        captureRunId: crypto.randomUUID(), client: provisional.client,
+        projectScopeId: project.projectScopeId, providers: provisional.providers,
+        routeId, ttlSeconds: 43_200,
+      }),
+      headers: { authorization: `Bearer ${controlToken}`, "content-type": "application/json" },
+      method: "POST",
+    });
+    if (!routeResponse.ok) throw new Error("Traicer couldn't create a scoped capture route");
+    const issued = await routeResponse.json() as { readonly data?: { readonly routeId?: unknown; readonly routeToken?: unknown } };
+    if (issued.data?.routeId !== routeId || typeof issued.data.routeToken !== "string") throw new Error("Traicer returned an invalid scoped capture route");
+    const launch = createHarnessLaunch(commandArgs, {
+      anthropic: `${daemon.gatewayBaseUrl}/anthropic/${issued.data.routeToken}`,
+      openai: `${daemon.gatewayBaseUrl}/openai/${issued.data.routeToken}/v1`,
+    });
+    const child = Bun.spawn([...launch.args], { cwd: process.cwd(), env: launch.environment, stderr: "inherit", stdin: "inherit", stdout: "inherit" });
+    const forwardInterrupt = () => child.kill("SIGINT");
+    const forwardTermination = () => child.kill("SIGTERM");
+    process.on("SIGINT", forwardInterrupt);
+    process.on("SIGTERM", forwardTermination);
+    try {
+      process.exitCode = await child.exited;
+    } finally {
+      process.off("SIGINT", forwardInterrupt);
+      process.off("SIGTERM", forwardTermination);
+    }
+  } finally {
+    const revoked = await fetch(`${daemon.controlBaseUrl}/v1/capture-routes/${routeId}`, {
+      headers: { authorization: `Bearer ${controlToken}` }, method: "DELETE",
+    }).catch(() => undefined);
+    if (!revoked?.ok) {
+      console.error("Traicer couldn't revoke the capture route; stop the daemon to invalidate it immediately");
+    }
+  }
+};
 
 try {
   if (command === "init") await initialize();
+  else if (command === "project") await withResolvedSecrets("__project");
+  else if (command === "run") await withResolvedSecrets("__run");
   else if (command === "secrets") await encryptSecrets();
   else if (command === "start") await start();
   else if (command === "__start") await startResolved();
+  else if (command === "__project") await projectResolved();
+  else if (command === "__run") await runResolved();
   else if (command === "--version" || command === "-v") console.log(packageJson.version);
-  else if (!command || command === "--help" || command === "-h") help();
+  else if (!command || command === "--help" || command === "-h") {
+    help();
+    console.log("Project capture:\n  traicer project link|status|unlink [--scope-id <uuid>]\n  traicer run [--directory <path>] -- claude|codex|opencode [args]");
+  }
   else throw new Error(`Unknown command: ${command}`);
 } catch (error) {
   console.error(error instanceof Error ? error.message : "Traicer failed");
