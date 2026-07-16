@@ -1,6 +1,13 @@
 # Changelog
 
 
+
+## 0.2.1
+<sub>2026-07-16</sub>
+
+- [`af29c13`](https://github.com/smashah/traicer/commit/af29c13bfb6654f5734b4f810b70f27f42da2c45)  *(patch)*
+  Fixed Cloudflare account discovery when an older Wrangler installation shadows an authenticated JSON-capable Wrangler later on PATH.
+
 ## 0.2.0
 <sub>2026-07-16</sub>
 
