@@ -16,7 +16,6 @@ You can also install the package with your normal npm-compatible package manager
 
 ```text
 --storage <provider>      cloudflare-r2, aws-s3, or existing-s3
---provider <provider>    Capture adapter and upstream routing: anthropic or openai
 --account-id <id>        Cloudflare account ID override for cloudflare-r2
 --bucket <name>          Existing bucket name; required for existing-s3
 --endpoint <url>         HTTPS S3-compatible endpoint; required for existing-s3
@@ -29,14 +28,13 @@ You can also install the package with your normal npm-compatible package manager
 
 When interactive input is available, omitted values are prompted. With `--yes`, required values without safe defaults remain empty and validation fails rather than inventing credentials or account identifiers.
 
-The provider choice scopes this configuration to one capture adapter. Anthropic and OpenAI use different accepted request paths, client labels, and upstream origins, while the coding client continues to supply its existing provider credentials.
+The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned storage configuration. Unit and synthetic tests cover the route configuration; released provider combinations haven't been acceptance-tested yet.
 
 ### Cloudflare R2
 
 ```sh
 traicer init \
-  --storage cloudflare-r2 \
-  --provider anthropic
+  --storage cloudflare-r2
 ```
 
 The Cloudflare account ID is public account metadata, not an API token. When `--account-id` is omitted, `init` tries `wrangler whoami --json`: one returned account is selected automatically, while multiple accounts are shown as a numbered choice. If Wrangler is missing or unauthenticated, `init` falls back to manual account ID entry.
@@ -48,8 +46,7 @@ Traicer writes the selected ID into the local R2 endpoint and generated Alchemy 
 ```sh
 traicer init \
   --storage aws-s3 \
-  --region eu-west-2 \
-  --provider openai
+  --region eu-west-2
 ```
 
 This generates a private, versioned, server-side-encrypted bucket definition. Deployment still requires AWS credentials understood by Alchemy and explicit deployment approval.
@@ -81,7 +78,7 @@ TRAICER_STORAGE_SECRET_ACCESS_KEY
 TRAICER_STORAGE_SESSION_TOKEN      optional
 ```
 
-The initializer already writes encrypted Varlock references for the adapter capability, control token, device signing key, and local envelope-wrapping key. Do not replace those references with plaintext.
+The initializer already writes encrypted Varlock references for the control token, device signing key, local envelope-wrapping key, and project-mapping key. Do not replace those references with plaintext.
 
 ## `traicer start`
 
@@ -94,16 +91,18 @@ traicer start [--directory <path>]
 On success it prints a JSON record similar to:
 
 ```json
-{"controlPort":49152,"gatewayPort":49153,"proxyPort":null,"pid":12345,"protocolVersion":1,"type":"ready"}
+{"controlPort":49152,"gatewayPort":49153,"proxyPort":null,"pid":12345,"protocolVersion":2,"type":"ready"}
 ```
 
 The control API requires a separate bearer capability and is not a public integration surface. Do not expose either loopback listener through a tunnel, container port mapping, LAN bind, or reverse proxy.
 
-### Endpoint limitation
+## `traicer project`
 
-The fixed gateway URL contains the provider name and generated adapter capability as well as the random port. This release does not provide a supported `traicer endpoint` command, so the CLI alone does not offer the desktop app's safe copy-and-paste routing flow.
+Run `traicer project link` inside a Git repository with an `origin` remote. Traicer stores an HMAC fingerprint and opaque UUID in the config directory; it doesn't persist the remote, repository name, or directory. Pass `--scope-id <uuid>` when linking the same project on another machine.
 
-Treat this as an operator limitation, not an invitation to print or commit the adapter capability. Use the desktop app for routine client routing until a dedicated endpoint command can expose it deliberately.
+## `traicer run`
+
+`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. These integrations currently have unit and synthetic evidence only; compatibility with released harness binaries hasn't been acceptance-tested. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops. The route token is neither printed nor stored in the runtime descriptor.
 
 ## Generated directory
 

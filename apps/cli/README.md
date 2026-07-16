@@ -8,22 +8,27 @@ Traicer is an operator preview. It requires Bun 1.3 or newer, a Traice Market de
 
 ```sh
 bunx @traice-market/traicer init \
-  --storage cloudflare-r2 \
-  --provider anthropic
+  --storage cloudflare-r2
 
 # Fill the external credential fields in ~/.config/traicer/.env.local.
 bunx @traice-market/traicer secrets
 bunx @traice-market/traicer start
+
+# In another terminal, from the repository you want to capture:
+bunx @traice-market/traicer project link
+bunx @traice-market/traicer run -- claude
 ```
 
 `init` creates files but does not deploy cloud resources unless you pass `--deploy` or confirm the interactive prompt. `--yes` accepts safe defaults and never implies `--deploy`.
 
-The AI provider choice selects the capture adapter and upstream routing for this configuration. It does not replace the provider credentials already configured in your coding client.
+Traicer generates Anthropic and OpenAI adapter routes over one storage bucket. Your coding client keeps its existing provider credentials. These routes have unit and synthetic coverage, but released provider and harness combinations haven't been acceptance-tested yet.
 
 ## Commands
 
 ```text
 traicer init [options]               Create configuration and optional storage infrastructure
+traicer project link|status|unlink   Manage this repository's private local scope link
+traicer run -- <harness> [args]      Generate a scoped launch for claude, codex, or opencode
 traicer secrets [--directory PATH]   Encrypt plaintext .env.local secrets with Varlock
 traicer start [--directory PATH]     Resolve secrets and run the local daemon
 traicer --version                     Print the package version
@@ -63,11 +68,11 @@ Cloudflare R2 and AWS S3 modes generate an Alchemy stack under `<directory>/infr
 
 Do not commit `.env.local`, `.alchemy/`, or any plaintext credential. `traicer secrets` encrypts sensitive plaintext values in place; it does not fetch marketplace or storage credentials for you.
 
-## Current routing limitation
+## Project-scoped capture
 
-`traicer start` prints a JSON ready record containing the random control and gateway ports. The fixed gateway also requires the generated adapter capability, and this release does not yet expose a dedicated command that prints the complete capability-bearing client endpoint.
+`traicer project link` derives a keyed fingerprint from the Git `origin` and stores only that fingerprint and an opaque project scope UUID. Repository names, remotes, and local paths aren't written to Traicer state or sent to the marketplace.
 
-Use the desktop app when you need a copyable gateway or explicit-proxy URL. CLI operators integrating the daemon directly should read the [client configuration guide](https://github.com/smashah/traicer/blob/main/docs/CLIENT_CONFIGURATION.md) and treat the adapter capability as a secret.
+`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. These integrations currently have unit and synthetic evidence only; compatibility with released harness binaries hasn't been acceptance-tested. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops.
 
 ## More documentation
 

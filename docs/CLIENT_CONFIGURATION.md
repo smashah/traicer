@@ -4,7 +4,7 @@ Traicer captures only traffic that a seller deliberately routes through a loopba
 
 ## Fixed provider gateway
 
-The fixed gateway is the preferred connection mode. It accepts one configured provider, requires a capability embedded in the URL, and forwards only supported provider paths.
+The fixed gateway is the preferred connection mode. It accepts configured Anthropic and OpenAI routes, requires a short-lived capability embedded in the URL, and forwards only supported provider paths.
 
 1. Start Traicer and copy the **Gateway** URL shown by the desktop app.
 2. Set that value as the provider base URL in the coding client.
@@ -52,6 +52,6 @@ Pausing Traicer stops new capture persistence but keeps the local process under 
 
 If the coding client cannot reach its provider, switch it back to the original provider base URL first. That isolates provider access from Traicer routing while you work through [Troubleshooting](TROUBLESHOOTING.md).
 
-## CLI operators
+## CLI routing
 
-The CLI daemon prints random gateway and control ports, but the gateway also requires the generated adapter capability. The current CLI does not expose a supported command for printing the complete endpoint. Do not work around that by logging or committing decrypted capability values; use the desktop app for routine routing until the CLI adds a deliberate endpoint command.
+The CLI keeps capability-bearing URLs out of its output. Link the current repository with `traicer project link`, keep `traicer start` running, and generate a preview launch with `traicer run -- claude`, `traicer run -- codex`, or `traicer run -- opencode`. Released harness binaries haven't been acceptance-tested. The CLI attempts to revoke the route when the client exits; a failed revocation produces a warning, and the route expires within 12 hours or when the daemon stops.
