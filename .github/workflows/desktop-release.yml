@@ -156,6 +156,8 @@ jobs:
           path: apps/desktop/src-tauri/target/${{ matrix.rust_target }}/release/bundle
           format: cyclonedx-json
           output-file: apps/desktop/release-assets/${{ matrix.rust_target }}/sbom-${{ matrix.rust_target }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
       - uses: actions/upload-artifact@v4
         with:
           name: traicer-${{ matrix.rust_target }}
