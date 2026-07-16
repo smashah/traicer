@@ -1,5 +1,11 @@
 # Changelog
 
+
+## 0.2.0
+<sub>2026-07-16</sub>
+
+- *(minor)* Version bump from group with `@traice-market/traicer` v0.2.0
+
 ## 0.1.0
 <sub>2026-07-14</sub>
 
