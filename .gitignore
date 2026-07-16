@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .turbo/
+apps/video/
 .DS_Store
 *.db
 *.db-shm
