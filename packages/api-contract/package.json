@@ -1,7 +1,7 @@
 {
   "name": "@traice/api-contract",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
   "scripts": {
