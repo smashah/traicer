@@ -41,13 +41,17 @@ describe("Traicer init scaffold", () => {
       randomUuid: () => "12345678-1234-1234-1234-123456789abc",
     });
 
-    const [config, env, schema, stack, workspace] = await Promise.all([
+    const [config, env, schema, stack, workspace, infrastructurePackage] = await Promise.all([
       readFile(join(directory, "traicer.config.json"), "utf8"),
       readFile(join(directory, ".env.local"), "utf8"),
       readFile(join(directory, ".env.schema"), "utf8"),
       readFile(join(directory, "infra/alchemy.run.ts"), "utf8"),
       readFile(join(directory, "infra/pnpm-workspace.yaml"), "utf8"),
+      readFile(join(directory, "infra/package.json"), "utf8"),
     ]);
+    const infrastructureDependencies = (JSON.parse(infrastructurePackage) as {
+      dependencies: Record<string, string>;
+    }).dependencies;
     expect(config).toContain(`https://${accountId}.r2.cloudflarestorage.com`);
     expect(JSON.parse(config).capture.adapters).toEqual([
       { allowedPaths: ["/v1/messages"], provider: "anthropic", upstreamOrigin: "https://api.anthropic.com" },
@@ -64,6 +68,13 @@ describe("Traicer init scaffold", () => {
     expect(stack).toContain('name: "seller-traices"');
     expect(workspace).toContain("onlyBuiltDependencies:");
     expect(workspace).toContain("  - workerd");
+    expect(workspace).toContain("  - 'alchemy@2.0.0-beta.62'");
+    expect(infrastructureDependencies).toEqual({
+      "@effect/platform-bun": "4.0.0-beta.98",
+      "@effect/platform-node": "4.0.0-beta.98",
+      alchemy: "2.0.0-beta.62",
+      effect: "4.0.0-beta.98",
+    });
   });
 
   test("refuses to overwrite an existing secret file", async () => {

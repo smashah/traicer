@@ -43,12 +43,12 @@ const infraPackage = `${JSON.stringify({
   dependencies: {
     "@effect/platform-bun": "4.0.0-beta.98",
     "@effect/platform-node": "4.0.0-beta.98",
-    alchemy: "2.0.0-beta.61",
+    alchemy: "2.0.0-beta.62",
     effect: "4.0.0-beta.98",
   },
 }, null, 2)}\n`;
 
-const infraWorkspace = `onlyBuiltDependencies:\n  - msgpackr-extract\n  - workerd\nminimumReleaseAgeExclude:\n  - '@effect/platform-bun@4.0.0-beta.98'\n  - '@effect/platform-node@4.0.0-beta.98'\n  - '@effect/platform-node-shared@4.0.0-beta.98'\n  - 'effect@4.0.0-beta.98'\n`;
+const infraWorkspace = `onlyBuiltDependencies:\n  - msgpackr-extract\n  - workerd\nminimumReleaseAgeExclude:\n  - '@effect/platform-bun@4.0.0-beta.98'\n  - '@effect/platform-node@4.0.0-beta.98'\n  - '@effect/platform-node-shared@4.0.0-beta.98'\n  - 'alchemy@2.0.0-beta.62'\n  - 'effect@4.0.0-beta.98'\n`;
 
 const alchemyStack = (
   storage: StorageProvider,
