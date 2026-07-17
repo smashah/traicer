@@ -6,6 +6,12 @@
 
 
 
+
+## 0.3.0
+<sub>2026-07-17</sub>
+
+- [#22](https://github.com/smashah/traicer/pull/22) [`a8e3df2`](https://github.com/smashah/traicer/commit/a8e3df2e05e6edbff81088aae3367bc35d3f636b)  *(minor)* - Add local-first owner trace access, Traices Explorer, and service lifecycle commands
+
 ## 0.2.5
 <sub>2026-07-17</sub>
 
