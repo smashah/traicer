@@ -96,6 +96,10 @@ describe("durable manifest outbox", () => {
     expect(migrated.committedManifests()).toEqual([manifest]);
     migrated.close();
 
+    const reopened = openOperationalState(path);
+    expect(reopened.counts()).toEqual({ committed: 1, pending: 0 });
+    reopened.close();
+
     const verified = new Database(path, { strict: true });
     expect(
       verified

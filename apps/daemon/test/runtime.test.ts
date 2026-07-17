@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("daemon capture runtime", () => {
-  test("forwards a synthetic provider call through encrypted seller storage to a safe committed manifest", async () => {
+  test("captures to encrypted seller storage while marketplace requests remain unavailable", async () => {
     const objects = new Map<string, Uint8Array>();
     const storage = Bun.serve({
       fetch: async (request) => {
@@ -106,7 +106,7 @@ describe("daemon capture runtime", () => {
           expect(request.headers.get("authorization")).toBe(
             "Bearer manifest-capability-secret"
           );
-          return new Response(JSON.stringify({ success: true }), { status: 202 });
+          return new Response(JSON.stringify({ code: "MARKETPLACE_UNAVAILABLE" }), { status: 503 });
         },
         resolveRoute: async (token) => token === "scoped-route" ? {
           captureRunId: "22222222-2222-4222-8222-222222222222",
@@ -162,7 +162,8 @@ describe("daemon capture runtime", () => {
     expect(plaintext).toContain('"captureRunId":"22222222-2222-4222-8222-222222222222"');
     expect(plaintext).not.toContain("seller@example.com");
     expect(plaintext).not.toContain("sk-abcdefghijklmnop");
-    expect(state.counts()).toEqual({ committed: 1, pending: 0 });
+    expect(state.counts()).toEqual({ committed: 0, pending: 1 });
+    expect(state.traces(10, 0)[0]?.state).toBe("manifest_pending");
     const egress = JSON.stringify(submittedBodies);
     expect(egress).not.toContain("RAW_CANARY_DO_NOT_EGRESS");
     expect(egress).not.toContain("provider-secret");

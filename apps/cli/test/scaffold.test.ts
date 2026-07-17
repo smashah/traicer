@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 
 import { parseCloudflareAccountId } from "../src/cloudflare";
 import { createBootstrap, daemonEnvironment, readTraicerConfig } from "../src/config";
-import { createScaffold } from "../src/scaffold";
+import { createScaffold, upgradeManagedSecretSchema } from "../src/scaffold";
 
 const keyPair = {
   keyId: "signer-key-id",
@@ -15,6 +15,21 @@ const keyPair = {
 };
 
 describe("Traicer init scaffold", () => {
+  test("makes the marketplace credential optional in an existing managed schema", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "traicer-cli-"));
+    await Bun.write(
+      join(directory, ".env.schema"),
+      "# @required @sensitive\nTRAICER_MARKETPLACE_CREDENTIAL=\n# @required @sensitive\nTRAICER_STORAGE_ACCESS_KEY_ID=\n"
+    );
+
+    await upgradeManagedSecretSchema(directory);
+    await upgradeManagedSecretSchema(directory);
+
+    expect(await Bun.file(join(directory, ".env.schema")).text()).toStartWith(
+      "# @optional @sensitive\nTRAICER_MARKETPLACE_CREDENTIAL=\n"
+    );
+  });
+
   test("does not pass resolved secrets to the daemon environment", () => {
     expect(daemonEnvironment({
       __VARLOCK_ENV: "encrypted-blob",
@@ -49,9 +64,11 @@ describe("Traicer init scaffold", () => {
       readFile(join(directory, "infra/pnpm-workspace.yaml"), "utf8"),
       readFile(join(directory, "infra/package.json"), "utf8"),
     ]);
-    const infrastructureDependencies = (JSON.parse(infrastructurePackage) as {
+    const parsedInfrastructurePackage = JSON.parse(infrastructurePackage) as {
       dependencies: Record<string, string>;
-    }).dependencies;
+      type?: string;
+    };
+    const infrastructureDependencies = parsedInfrastructurePackage.dependencies;
     expect(config).toContain(`https://${accountId}.r2.cloudflarestorage.com`);
     expect(JSON.parse(config).capture.adapters).toEqual([
       { allowedPaths: ["/v1/messages"], provider: "anthropic", upstreamOrigin: "https://api.anthropic.com" },
@@ -61,18 +78,19 @@ describe("Traicer init scaffold", () => {
     expect(env).toContain("TRAICER_PROJECT_MAPPING_KEY=");
     expect(env).not.toContain("TRAICER_ADAPTER_CAPABILITY");
     expect(env).not.toContain(keyPair.privateKey);
-    expect(schema).toContain("TRAICER_MARKETPLACE_CREDENTIAL=");
+    expect(schema).toContain("# @optional @sensitive\nTRAICER_MARKETPLACE_CREDENTIAL=");
     expect(schema).not.toContain("+TRAICER_");
     expect(stack).toContain(`process.env.CLOUDFLARE_ACCOUNT_ID ??= "${accountId}"`);
     expect(stack).toContain('Cloudflare.R2.Bucket("SellerTraces"');
     expect(stack).toContain('name: "seller-traices"');
     expect(workspace).toContain("onlyBuiltDependencies:");
     expect(workspace).toContain("  - workerd");
-    expect(workspace).toContain("  - 'alchemy@2.0.0-beta.62'");
+    expect(workspace).toContain("  - 'alchemy@2.0.0-beta.63'");
+    expect(parsedInfrastructurePackage.type).toBe("module");
     expect(infrastructureDependencies).toEqual({
       "@effect/platform-bun": "4.0.0-beta.98",
       "@effect/platform-node": "4.0.0-beta.98",
-      alchemy: "2.0.0-beta.62",
+      alchemy: "2.0.0-beta.63",
       effect: "4.0.0-beta.98",
     });
   });
@@ -113,7 +131,7 @@ describe("Traicer init scaffold", () => {
       },
     }));
     const names = [
-      "TRAICER_ADAPTER_CAPABILITY", "TRAICER_CONTROL_TOKEN", "TRAICER_MARKETPLACE_CREDENTIAL",
+      "TRAICER_ADAPTER_CAPABILITY", "TRAICER_CONTROL_TOKEN",
       "TRAICER_SIGNING_PRIVATE_KEY", "TRAICER_STORAGE_ACCESS_KEY_ID",
       "TRAICER_STORAGE_SECRET_ACCESS_KEY", "TRAICER_VAULT_KEY",
     ] as const;
@@ -126,7 +144,9 @@ describe("Traicer init scaffold", () => {
       expect(bootstrap.capture).toMatchObject({
         legacyAdapterCapability: process.env.TRAICER_ADAPTER_CAPABILITY,
         legacyClient: "codex",
+        marketplace: { apiBaseUrl: "https://api.traice.market" },
       });
+      expect(bootstrap.capture?.marketplace).not.toHaveProperty("credential");
     } finally {
       for (const name of names) {
         const value = previous[name];

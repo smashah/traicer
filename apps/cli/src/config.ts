@@ -88,7 +88,9 @@ export const createBootstrap = (config: TraicerConfig): BootstrapV2 => ({
     } : {}),
     marketplace: {
       apiBaseUrl: config.marketplace.apiBaseUrl,
-      credential: requiredSecret("TRAICER_MARKETPLACE_CREDENTIAL"),
+      ...(process.env.TRAICER_MARKETPLACE_CREDENTIAL
+        ? { credential: process.env.TRAICER_MARKETPLACE_CREDENTIAL }
+        : {}),
     },
     policy: {
       capturePolicyId: "strict-default",

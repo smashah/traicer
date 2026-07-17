@@ -12,7 +12,7 @@ Use Traicer to capture supported AI coding conversations you choose, protect the
 
 You will need:
 
-- A Traice Market seller account and device credential.
+- A Traice Market seller account and device credential when you want marketplace reconciliation; CLI capture can start without them and retains pending manifests locally.
 - An Anthropic or OpenAI provider credential. Your coding client continues to authenticate directly with the provider.
 - A dedicated Cloudflare R2, AWS S3, or compatible S3 bucket with scoped credentials.
 - Bun 1.3 or newer if you choose the CLI. The desktop app includes everything it needs to run the local service.
@@ -55,11 +55,11 @@ bunx @traice-market/traicer init \
   --storage cloudflare-r2
 ```
 
-The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned bucket. Unit tests cover route configuration and synthetic capture components; released provider and harness combinations haven't been acceptance-tested yet.
+The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned bucket. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI and the other harness combinations currently have unit and synthetic evidence.
 
 For R2, `init` tries to read the public account list from an installed, authenticated Wrangler CLI. It writes your selection into the local R2 endpoint and generated Alchemy stack. Pass `--account-id <cloudflare-account-id>` to skip discovery. Alchemy handles deployment authentication separately; Traicer does not read or reuse Wrangler's OAuth token.
 
-Add your marketplace and storage credentials to `~/.config/traicer/.env.local`, then protect the secret values and start Traicer:
+Add your storage credentials and, if you have one, your marketplace credential to `~/.config/traicer/.env.local`, then protect the secret values and start Traicer:
 
 ```sh
 bunx @traice-market/traicer secrets
@@ -74,6 +74,8 @@ bunx @traice-market/traicer run -- claude
 ```
 
 `init` will not overwrite an existing configuration. It creates cloud resources only when you pass `--deploy` or approve the interactive deployment prompt; `--yes` does not grant deployment permission. Read the [CLI reference](docs/CLI.md) before using this path for capture.
+
+To destroy the managed storage stack and remove the local generated configuration before a clean end-to-end test, run `bunx @traice-market/traicer reset --yes`. Add `--state-store` only when you also want to remove Alchemy's account-level Cloudflare state store.
 
 ## Know what will be captured
 

@@ -2,7 +2,7 @@
 
 The seller-operated Traicer command-line client. It creates local capture configuration, protects generated device secrets with [Varlock](https://varlock.dev/), scaffolds seller-owned S3-compatible storage through [Alchemy v2](https://v2.alchemy.run/), and starts the Traicer daemon on loopback-only listeners.
 
-Traicer is an operator preview. It requires Bun 1.3 or newer, a Traice Market device credential, and scoped credentials for a dedicated S3-compatible bucket.
+Traicer is an operator preview. It requires Bun 1.3 or newer and scoped credentials for a dedicated S3-compatible bucket. A Traice Market device credential is optional at capture time; without one, signed manifests remain pending locally for later reconciliation.
 
 ## Quick start
 
@@ -21,12 +21,13 @@ bunx @traice-market/traicer run -- claude
 
 `init` creates files but does not deploy cloud resources unless you pass `--deploy` or confirm the interactive prompt. `--yes` accepts safe defaults and never implies `--deploy`.
 
-Traicer generates Anthropic and OpenAI adapter routes over one storage bucket. Your coding client keeps its existing provider credentials. These routes have unit and synthetic coverage, but released provider and harness combinations haven't been acceptance-tested yet.
+Traicer generates Anthropic and OpenAI adapter routes over one storage bucket. Your coding client keeps its existing provider credentials. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI and the other harness combinations currently have unit and synthetic evidence.
 
 ## Commands
 
 ```text
 traicer init [options]               Create configuration and optional storage infrastructure
+traicer reset [--yes] [--state-store] Destroy managed storage and remove generated local state
 traicer project link|status|unlink   Manage this repository's private local scope link
 traicer run -- <harness> [args]      Generate a scoped launch for claude, codex, or opencode
 traicer secrets [--directory PATH]   Encrypt plaintext .env.local secrets with Varlock
@@ -66,13 +67,13 @@ Cloudflare R2 and AWS S3 modes generate an Alchemy stack under `<directory>/infr
 | `.gitignore` | Excludes local secrets, Alchemy state, and generated dependencies |
 | `infra/` | Optional Alchemy v2 stack for Cloudflare R2 or AWS S3 |
 
-Do not commit `.env.local`, `.alchemy/`, or any plaintext credential. `traicer secrets` encrypts sensitive plaintext values in place; it does not fetch marketplace or storage credentials for you.
+Do not commit `.env.local`, `.alchemy/`, or any plaintext credential. `traicer secrets` encrypts sensitive plaintext values in place; it does not fetch marketplace or storage credentials for you. The marketplace field may remain empty, but storage credentials are required because capture never reports success without durable ciphertext.
 
 ## Project-scoped capture
 
 `traicer project link` derives a keyed fingerprint from the Git `origin` and stores only that fingerprint and an opaque project scope UUID. Repository names, remotes, and local paths aren't written to Traicer state or sent to the marketplace.
 
-`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. These integrations currently have unit and synthetic evidence only; compatibility with released harness binaries hasn't been acceptance-tested. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops.
+`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. Claude Code 2.1.212 on macOS has been manually acceptance-tested; Codex and OpenCode currently have unit and synthetic evidence. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops.
 
 ## More documentation
 

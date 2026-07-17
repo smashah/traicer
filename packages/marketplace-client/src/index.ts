@@ -58,9 +58,12 @@ export const assertSafeManifestPayload = (payload: unknown): void => {
 
 export interface MarketplaceClientConfig {
   readonly apiBaseUrl: string;
-  readonly credential: string;
+  readonly credential?: string;
   readonly fetch?: MarketplaceFetch;
 }
+
+const authorizationHeaders = (credential: string | undefined): Record<string, string> =>
+  credential ? { authorization: `Bearer ${credential}` } : {};
 
 export interface RegisterDeviceInput {
   readonly adapters: readonly string[];
@@ -223,7 +226,7 @@ export const createMarketplaceClient = (config: MarketplaceClientConfig) => {
     const response = await send(new Request(new URL(`/api${path}`, base), {
       body: encoded,
       headers: {
-        authorization: `Bearer ${config.credential}`,
+        ...authorizationHeaders(config.credential),
         "content-type": "application/json",
         ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
       },
@@ -234,7 +237,7 @@ export const createMarketplaceClient = (config: MarketplaceClientConfig) => {
   };
   const get = async <T>(path: string): Promise<T> => {
     const response = await send(new Request(new URL(`/api${path}`, base), {
-      headers: { authorization: `Bearer ${config.credential}` },
+      headers: authorizationHeaders(config.credential),
       method: "GET",
     }));
     if (!response.ok) throw new Error(`Marketplace request failed with ${response.status}`);
@@ -264,7 +267,7 @@ export const createMarketplaceClient = (config: MarketplaceClientConfig) => {
 
 export const createMarketplaceManifestClient = (config: {
   readonly apiBaseUrl: string;
-  readonly credential: string;
+  readonly credential?: string;
   readonly fetch?: MarketplaceFetch;
 }): MarketplaceManifestSink => {
   const send = config.fetch ?? globalThis.fetch;
@@ -276,7 +279,7 @@ export const createMarketplaceManifestClient = (config: {
       const request = new Request(new URL("/api/v1/traicer/manifests/batch", base), {
         body: JSON.stringify(input),
         headers: {
-          authorization: `Bearer ${config.credential}`,
+          ...authorizationHeaders(config.credential),
           "content-type": "application/json",
           "idempotency-key": input.idempotencyKey,
         },

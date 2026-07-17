@@ -55,16 +55,15 @@ export const createCaptureRuntime = (
     ? bootstrap.adapterCapability
     : bootstrap.legacyAdapterCapability;
   const legacyClient = "client" in bootstrap ? bootstrap.client : bootstrap.legacyClient;
-  const remoteSink = createMarketplaceManifestClient({
+  const marketplaceConfig = {
     apiBaseUrl: bootstrap.marketplace.apiBaseUrl,
-    credential: bootstrap.marketplace.credential,
+    ...(bootstrap.marketplace.credential
+      ? { credential: bootstrap.marketplace.credential }
+      : {}),
     ...(overrides.marketplaceFetch ? { fetch: overrides.marketplaceFetch } : {}),
-  });
-  const marketplace = createMarketplaceClient({
-    apiBaseUrl: bootstrap.marketplace.apiBaseUrl,
-    credential: bootstrap.marketplace.credential,
-    ...(overrides.marketplaceFetch ? { fetch: overrides.marketplaceFetch } : {}),
-  });
+  };
+  const remoteSink = createMarketplaceManifestClient(marketplaceConfig);
+  const marketplace = createMarketplaceClient(marketplaceConfig);
   const durableSink = state.createDurableManifestSink(remoteSink);
   const storageCredentials = {
     accessKeyId: bootstrap.storage.accessKeyId,
@@ -110,7 +109,15 @@ export const createCaptureRuntime = (
       committed: ({ traceId }) => state.recordCommitted(traceId),
       encrypted: ({ canonicalHash, ciphertextHash, traceId }) =>
         state.recordEncrypted(traceId, canonicalHash, ciphertextHash),
-      failed: ({ code, stage, traceId }) => state.recordFailure(traceId, stage, code),
+      failed: ({ code, stage, traceId }) => {
+        if (stage === "manifest") {
+          state.recordEvent("manifest.delivery_deferred", {
+            safeErrorCode: "marketplace_unavailable",
+          });
+          return;
+        }
+        state.recordFailure(traceId, stage, code);
+      },
       manifestPending: ({ clientManifestId, traceId }) =>
         state.recordManifestPending(traceId, clientManifestId),
       observed: ({ capturedAt, traceId, ...context }) => state.recordObserved(traceId, capturedAt, context),
@@ -399,10 +406,6 @@ export const createCaptureRuntime = (
           ? {}
           : { versioningEnabled: storageProbe.versioningEnabled }),
       };
-      await marketplace.commitStorageHealth({
-        ...storagePayload,
-        signature: await signBytes(bootstrap.signingPrivateKey, canonicalBytes(storagePayload)),
-      });
       if (!storagePassed) throw new Error("Seller storage conformance failed");
 
       const dryRunAdapter = adapters[0]!;
@@ -443,13 +446,28 @@ export const createCaptureRuntime = (
         signatureAlgorithm: "Ed25519" as const,
         status: dryPassed ? "passed" as const : "quarantined" as const,
       };
-      await marketplace.commitDryRun({
+      if (!dryPassed) throw new Error("Capture safety dry run failed");
+
+      const storageHealth = {
+        ...storagePayload,
+        signature: await signBytes(bootstrap.signingPrivateKey, canonicalBytes(storagePayload)),
+      };
+      const dryRun = {
         ...dryPayload,
         signature: await signBytes(bootstrap.signingPrivateKey, canonicalBytes(dryPayload)),
-      });
-      if (!dryPassed) throw new Error("Capture safety dry run failed");
-      await publishInventory();
+      };
       captureEnabled = true;
+      scheduler.schedule(Promise.allSettled([
+        marketplace.commitStorageHealth(storageHealth),
+        marketplace.commitDryRun(dryRun),
+        publishInventory(),
+      ]).then((results) => {
+        if (results.some((result) => result.status === "rejected")) {
+          state.recordEvent("marketplace.bootstrap_pending", {
+            safeErrorCode: "marketplace_unavailable",
+          });
+        }
+      }));
     },
     commitDataset,
     cleanupExpiredDeliveries,

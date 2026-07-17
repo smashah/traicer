@@ -6,7 +6,7 @@ This guide takes a seller from a clean machine to a first eligible capture. Trai
 
 You need:
 
-- A Traice Market seller account and device-scoped marketplace credential.
+- A Traice Market seller account and device-scoped marketplace credential when you want immediate marketplace reconciliation. The CLI can capture to seller storage without an account and retain manifests locally.
 - Provider credentials for Anthropic or OpenAI. They continue to authenticate directly with the provider; Traicer does not replace them.
 - A dedicated Cloudflare R2, AWS S3, or S3-compatible bucket with the permissions listed in [Storage](STORAGE.md).
 - Bun 1.3 or newer when using the CLI. The desktop app bundles its daemon.
@@ -38,7 +38,7 @@ The provider choice configures one capture adapter because Anthropic and OpenAI 
 
 If Wrangler is installed and authenticated, Traicer tries to list the public Cloudflare accounts returned by `wrangler whoami --json`. Choose the account ID to write into the R2 endpoint and generated Alchemy stack. If Wrangler is unavailable, enter the public account ID manually or pass it with `--account-id`. Alchemy authenticates independently when you deploy.
 
-Edit `~/.config/traicer/.env.local` and fill only the external marketplace and storage credential fields. Leave generated `varlock(...)` references unchanged, then run:
+Edit `~/.config/traicer/.env.local` and fill the storage credential fields. Fill the marketplace credential when you have an account; otherwise leave it empty. Leave generated `varlock(...)` references unchanged, then run:
 
 ```sh
 bunx @traice-market/traicer secrets

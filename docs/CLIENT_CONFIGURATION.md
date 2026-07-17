@@ -54,4 +54,4 @@ If the coding client cannot reach its provider, switch it back to the original p
 
 ## CLI routing
 
-The CLI keeps capability-bearing URLs out of its output. Link the current repository with `traicer project link`, keep `traicer start` running, and generate a preview launch with `traicer run -- claude`, `traicer run -- codex`, or `traicer run -- opencode`. Released harness binaries haven't been acceptance-tested. The CLI attempts to revoke the route when the client exits; a failed revocation produces a warning, and the route expires within 12 hours or when the daemon stops.
+The CLI keeps capability-bearing URLs out of its output. Link the current repository with `traicer project link`, keep `traicer start` running, and generate a preview launch with `traicer run -- claude`, `traicer run -- codex`, or `traicer run -- opencode`. Claude Code 2.1.212 on macOS has been manually acceptance-tested; Codex and OpenCode currently have unit and synthetic evidence. The CLI attempts to revoke the route when the client exits; a failed revocation produces a warning, and the route expires within 12 hours or when the daemon stops.

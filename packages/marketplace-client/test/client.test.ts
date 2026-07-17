@@ -62,6 +62,21 @@ describe("marketplace manifest client", () => {
     expect(JSON.stringify(body)).not.toContain("RAW_CANARY_DO_NOT_EGRESS");
   });
 
+  test("omits authorization when the seller has no marketplace account", async () => {
+    let recorded: Request | undefined;
+    const client = createMarketplaceManifestClient({
+      apiBaseUrl: "https://api.traice.market",
+      fetch: async (request) => {
+        recorded = request instanceof Request ? request : new Request(request);
+        return new Response(JSON.stringify({ success: true }), { status: 202 });
+      },
+    });
+
+    await client.submit({ idempotencyKey: "manifest:test:offline", manifests: [signedManifest] });
+
+    expect(recorded?.headers.has("authorization")).toBeFalse();
+  });
+
   test("rejects generic storage locators and secrets", () => {
     expect(() =>
       assertSafeManifestPayload({ ...signedManifest, endpoint: "https://s3.test" })

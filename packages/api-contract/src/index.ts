@@ -49,7 +49,10 @@ export const CaptureBootstrapV2 = Schema.Struct({
   deviceId: Schema.String.pipe(Schema.minLength(1)),
   legacyAdapterCapability: Schema.optional(Schema.String.pipe(Schema.minLength(16))),
   legacyClient: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  marketplace: CaptureBootstrapV1.fields.marketplace,
+  marketplace: Schema.Struct({
+    apiBaseUrl: Schema.String.pipe(Schema.minLength(1)),
+    credential: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  }),
   policy: Schema.Struct({
     capturePolicyId: Schema.String.pipe(Schema.minLength(1)),
     pipelineVersion: Schema.String.pipe(Schema.minLength(1)),

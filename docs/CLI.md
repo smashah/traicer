@@ -28,7 +28,15 @@ You can also install the package with your normal npm-compatible package manager
 
 When interactive input is available, omitted values are prompted. With `--yes`, required values without safe defaults remain empty and validation fails rather than inventing credentials or account identifiers.
 
-The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned storage configuration. Unit and synthetic tests cover the route configuration; released provider combinations haven't been acceptance-tested yet.
+The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned storage configuration. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI currently has unit and synthetic evidence.
+
+## `traicer reset`
+
+```sh
+traicer reset [--directory <path>] [--yes] [--state-store]
+```
+
+`reset` destroys the generated Alchemy storage stack before removing Traicer's managed local files. It preserves the local configuration if cloud destruction fails. `--state-store` also removes Alchemy's account-level Cloudflare state store and is available only for Cloudflare R2 configurations.
 
 ### Cloudflare R2
 
@@ -72,13 +80,15 @@ traicer secrets [--directory <path>]
 This runs Varlock encryption against `.env.local`. Before running it, fill these external values:
 
 ```text
-TRAICER_MARKETPLACE_CREDENTIAL
+TRAICER_MARKETPLACE_CREDENTIAL     optional
 TRAICER_STORAGE_ACCESS_KEY_ID
 TRAICER_STORAGE_SECRET_ACCESS_KEY
 TRAICER_STORAGE_SESSION_TOKEN      optional
 ```
 
 The initializer already writes encrypted Varlock references for the control token, device signing key, local envelope-wrapping key, and project-mapping key. Do not replace those references with plaintext.
+
+Without a marketplace credential, startup still performs the mandatory seller-storage and local privacy checks, captures encrypted traces, and keeps signed manifests in the durable local outbox for later reconciliation.
 
 ## `traicer start`
 
@@ -102,7 +112,7 @@ Run `traicer project link` inside a Git repository with an `origin` remote. Trai
 
 ## `traicer run`
 
-`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. These integrations currently have unit and synthetic evidence only; compatibility with released harness binaries hasn't been acceptance-tested. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops. The route token is neither printed nor stored in the runtime descriptor.
+`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. Claude Code 2.1.212 on macOS has been manually acceptance-tested; Codex and OpenCode currently have unit and synthetic evidence. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops. The route token is neither printed nor stored in the runtime descriptor.
 
 ## Generated directory
 
