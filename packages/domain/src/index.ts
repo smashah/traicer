@@ -78,6 +78,41 @@ export interface RedactionReport {
   readonly replacements: Readonly<Record<string, number>>;
 }
 
+const NonNegativeInteger = Schema.Number.pipe(Schema.int(), Schema.nonNegative());
+
+export const CanonicalTraceV1Schema = Schema.Struct({
+  adapter: Schema.String.pipe(Schema.minLength(1)),
+  capturedAt: Schema.String.pipe(Schema.minLength(1)),
+  client: Schema.String.pipe(Schema.minLength(1)),
+  model: Schema.String.pipe(Schema.minLength(1)),
+  provider: Schema.Literal("anthropic", "openai"),
+  redaction: Schema.Struct({
+    detectorVersion: Schema.Literal("builtin/1"),
+    profile: Schema.String.pipe(Schema.minLength(1)),
+    replacements: Schema.Record({ key: Schema.String, value: NonNegativeInteger }),
+  }),
+  request: Schema.Unknown,
+  response: Schema.Struct({
+    body: Schema.Unknown,
+    status: NonNegativeInteger,
+  }),
+  schema: Schema.Literal("traice.trace/1"),
+  traceId: Schema.UUID,
+  usage: Schema.Struct({
+    inputTokens: NonNegativeInteger,
+    outputTokens: NonNegativeInteger,
+  }),
+});
+
+export const CanonicalTraceV2Schema = Schema.Struct({
+  ...CanonicalTraceV1Schema.fields,
+  captureRunId: Schema.UUID,
+  projectScopeId: Schema.UUID,
+  schema: Schema.Literal("traice.trace/2"),
+});
+
+export const CanonicalTraceSchema = Schema.Union(CanonicalTraceV1Schema, CanonicalTraceV2Schema);
+
 export interface CanonicalTraceV1 {
   readonly schema: "traice.trace/1";
   readonly adapter: string;
@@ -165,3 +200,4 @@ export interface CaptureOutcome {
   readonly manifest: SignedSafeManifest;
   readonly traceId: string;
 }
+import { Schema } from "effect";

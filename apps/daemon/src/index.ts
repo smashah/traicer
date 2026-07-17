@@ -16,12 +16,26 @@ const readBootstrap = async () => {
 };
 
 const bootstrap = await readBootstrap();
+
+const cacheMaxBytes = (() => {
+  const value = process.env.TRAICER_PLAINTEXT_CACHE_MAX_BYTES;
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("Plaintext cache size limit is invalid");
+  }
+  return parsed;
+})();
 const state = openOperationalState("traicer-state.db");
 const control = makeCaptureControl("healthy");
 const instanceId = crypto.randomUUID();
 const captureRoutes = createCaptureRouteRegistry();
 const runtime = bootstrap.capture
   ? createCaptureRuntime(bootstrap.capture, bootstrap.vaultKey, state, {
+      ...(process.env.TRAICER_PLAINTEXT_CACHE_DIRECTORY
+        ? { cacheDirectory: process.env.TRAICER_PLAINTEXT_CACHE_DIRECTORY }
+        : {}),
+      ...(cacheMaxBytes === undefined ? {} : { cacheMaxBytes }),
       resolveRoute: captureRoutes.resolve,
     })
   : undefined;
@@ -33,32 +47,43 @@ const controlApp = createControlApp({
   gatewayReady: () => runtime !== undefined,
   issueCaptureRoute: captureRoutes.issue,
   instanceId,
+  marketplaceStatus: () => runtime?.marketplaceStatus() ?? "disconnected",
+  onShutdown: () => setTimeout(() => void shutdown(), 0),
   revokeCaptureRoute: captureRoutes.revoke,
   ...(runtime
     ? {
         abortMultipart: runtime.abortMultipart,
+        clearTraceCache: runtime.clearTraceCache,
         commitDataset: runtime.commitDataset,
         deleteTrace: runtime.deleteTrace,
         onPause: runtime.pauseCapture,
         onResume: runtime.resumeCapture,
         proposeAgreement: runtime.proposeAgreement,
         prepareDelivery: runtime.prepareDelivery,
+        readTrace: runtime.readTrace,
+        traceCacheStats: runtime.traceCacheStats,
         workQueue: runtime.workQueue,
       }
     : {}),
   queueCounts: state.counts,
+  storageReady: () => runtime?.storageReady() ?? false,
   protocolVersion: bootstrap.protocolVersion,
   traces: state.traces,
 });
 
 if (runtime) {
+  await runtime.initialize();
   await runtime.reconcile().catch(() => undefined);
   await runtime.cleanupExpiredDeliveries();
-  await runtime.initialize();
 }
 
 const cleanupTimer = runtime
-  ? setInterval(() => void runtime.cleanupExpiredDeliveries(), 60_000)
+  ? setInterval(() => {
+      void runtime.cleanupExpiredDeliveries();
+      void runtime.purgeTraceCache().catch(() => {
+        state.recordEvent("plaintext_cache.purge_failed", { safeErrorCode: "local_delete_failed" });
+      });
+    }, 60_000)
   : undefined;
 
 const controlServer = Bun.serve({
@@ -88,6 +113,7 @@ if (gatewayServer) {
     gatewayPort: gatewayServer.port!,
     instanceId,
     pid: process.pid,
+    ...(forwardProxy?.port ? { proxyPort: forwardProxy.port } : {}),
     protocolVersion: bootstrap.protocolVersion,
     schema: "traicer.runtime/1",
   });

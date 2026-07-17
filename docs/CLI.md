@@ -90,10 +90,13 @@ The initializer already writes encrypted Varlock references for the control toke
 
 Without a marketplace credential, startup still performs the mandatory seller-storage and local privacy checks, captures encrypted traces, and keeps signed manifests in the durable local outbox for later reconciliation.
 
-## `traicer start`
+`init` does not start capture, a provider gateway, or an explicit proxy. It only creates configuration and optionally deploys storage.
+
+## `traicer start` and `traicer stop`
 
 ```sh
-traicer start [--directory <path>]
+traicer start [--directory <path>] [--detach]
+traicer stop [--directory <path>]
 ```
 
 `start` resolves Varlock values, sends the bootstrap to the daemon once over stdin, and removes `TRAICER_*` values from the daemon process environment. The daemon binds its control and provider gateway listeners to `127.0.0.1` on random ports.
@@ -104,7 +107,27 @@ On success it prints a JSON record similar to:
 {"controlPort":49152,"gatewayPort":49153,"proxyPort":null,"pid":12345,"protocolVersion":2,"type":"ready"}
 ```
 
+Without `--detach`, the daemon owns the foreground terminal. With `--detach`, Traicer waits for authenticated readiness, leaves the daemon running in the background, and returns; repeated detached starts are idempotent. `stop` uses the authenticated loopback shutdown path and is also idempotent.
+
 The control API requires a separate bearer capability and is not a public integration surface. Do not expose either loopback listener through a tunnel, container port mapping, LAN bind, or reverse proxy.
+
+## Service discovery
+
+`traicer status [--json]` reports safe daemon, storage, capture, marketplace-connection, and pending-manifest state. `traicer urls` shows the loopback gateway without minting a route; `traicer urls --reveal` creates and prints a 12-hour project-scoped bearer route for direct SDK use. `traicer instructions` prefers `traicer run -- claude|codex|opencode`, so route tokens are not persisted in shell history.
+
+## Owner trace access
+
+```sh
+traicer traces list [--limit 50] [--offset 0] [--provider openai] [--client claude] [--state committed] [--since 2026-07-01T00:00:00Z] [--json]
+traicer traces show <trace-id|configured-object-key|ciphertext-hash> [--json] [--stdout]
+traicer traces export <selector...> --output ./traces.jsonl [--format json|jsonl|markdown] [--force]
+traicer traces cache status|clear
+traicer explore
+```
+
+These commands read the local WAL-mode inventory directly, so listing, exploring, exporting, and cache management continue to work while the capture daemon and traice.market are offline. Only a reveal or export fetches ciphertext from seller storage. The reader accepts known trace IDs, ciphertext hashes, and exact content-addressed keys already recorded under the configured prefix; it cannot read arbitrary S3 keys. Ciphertext and canonical hashes are verified and the canonical schema is validated before plaintext is returned. Interactive `show` requires typing `reveal`; redirected output requires the deliberate `--stdout` flag.
+
+The OpenTUI explorer downloads lazily and shows download/decrypt progress. Successfully inspected plaintext is gzip-compressed in `<directory>/cache/decrypted`, limited to 512 MiB by default, and removed after seven days. POSIX cache files use mode `0600`; Windows relies on the user's profile ACL. Set `TRAICER_PLAINTEXT_CACHE_MAX_BYTES` to a non-negative byte limit when launching Traicer to change the size bound. CLI startup, daemon startup, the daemon's periodic sweep, cache reads, and cache writes prune stale entries, while `traces cache clear` removes all entries immediately. Terminal output, explicitly confirmed clipboard copies, the desktop/TUI detail pane, and exported files are plaintext boundaries.
 
 ## `traicer project`
 
@@ -122,6 +145,7 @@ Run `traicer project link` inside a Git repository with an `origin` remote. Trai
   .env.schema          Varlock sensitivity and required-value declarations
   .env.local           external credentials and encrypted secret references
   .gitignore           local secret, Alchemy state, and dependency exclusions
+  cache/decrypted/     bounded, compressed seven-day plaintext inspection cache
   infra/               optional Alchemy v2 storage stack
 ```
 

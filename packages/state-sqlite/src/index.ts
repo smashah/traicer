@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 
 import type { MarketplaceManifestSink } from "@traice/capture-core";
 import type { CaptureProvider, SignedSafeManifest } from "@traice/domain";
-import { and, asc, count, desc, eq, gt, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateOperationalState } from "./migrate";
@@ -34,9 +34,20 @@ export interface SafeEvent {
 
 export interface SafeTraceSummary {
   readonly capturedAt: string;
+  readonly client?: string;
+  readonly provider?: CaptureProvider;
   readonly state: LifecycleState;
   readonly traceId: string;
   readonly updatedAt: string;
+}
+
+export interface TraceInventoryOptions {
+  readonly client?: string;
+  readonly limit: number;
+  readonly offset: number;
+  readonly provider?: CaptureProvider;
+  readonly since?: string;
+  readonly state?: LifecycleState;
 }
 
 const safeErrorCode = (error: unknown): string => {
@@ -335,8 +346,9 @@ export const openOperationalState = (path: string) => {
           expiresAt: new Date(row.expiresAt).toISOString(),
         })),
     integrityCheck: () =>
-      db.get<{ integrity_check: string }>(sql.raw("PRAGMA integrity_check"))
-        ?.integrity_check === "ok",
+      sqlite
+        .query<{ readonly integrity_check: string }, []>("PRAGMA integrity_check")
+        .get()?.integrity_check === "ok",
     lifecycleState: (traceId: string): LifecycleState | undefined =>
       db
         .select({ state: traceLifecycle.state })
@@ -401,6 +413,61 @@ export const openOperationalState = (path: string) => {
           })
           .run();
       },
+    },
+    ownerTrace: (
+      selector: string,
+      prefix: string
+    ):
+      | {
+          readonly canonicalHash: string;
+          readonly ciphertextHash: string;
+          readonly traceId: string;
+        }
+      | undefined => {
+      const normalizedPrefix = prefix.replace(/^\/+|\/+$/g, "");
+      const objectMatch = /(?:^|\/)objects\/v1\/([a-f0-9]{2})\/([a-f0-9]{64})\.trce$/.exec(selector);
+      let ciphertextHash: string | undefined;
+      if (objectMatch) {
+        const hash = objectMatch[2]!;
+        const expected = `${normalizedPrefix ? `${normalizedPrefix}/` : ""}objects/v1/${hash.slice(0, 2)}/${hash}.trce`;
+        if (objectMatch[1] !== hash.slice(0, 2) || selector !== expected) return undefined;
+        ciphertextHash = hash;
+      } else if (/^[a-f0-9]{64}$/.test(selector)) {
+        ciphertextHash = selector;
+      }
+      const row = db
+        .select({
+          canonicalHash: traceLifecycle.canonicalHash,
+          ciphertextHash: traceLifecycle.ciphertextHash,
+          traceId: traceLifecycle.traceId,
+        })
+        .from(traceLifecycle)
+        .where(
+          ciphertextHash
+            ? eq(traceLifecycle.ciphertextHash, ciphertextHash)
+            : eq(traceLifecycle.traceId, selector)
+        )
+        .limit(1)
+        .get();
+      if (!row?.canonicalHash || !row.ciphertextHash) return undefined;
+      return {
+        canonicalHash: row.canonicalHash,
+        ciphertextHash: row.ciphertextHash,
+        traceId: row.traceId,
+      };
+    },
+    pendingManifests: (): readonly SignedSafeManifest[] =>
+      pendingRows().map((row) => row.signedManifest),
+    replacePendingManifest: (signed: SignedSafeManifest): void => {
+      db.update(manifestOutbox)
+        .set({ signedManifest: signed })
+        .where(
+          and(
+            eq(manifestOutbox.clientManifestId, signed.manifest.clientManifestId),
+            isNull(manifestOutbox.committedAt)
+          )
+        )
+        .run();
     },
     reconcile: async (remote: MarketplaceManifestSink): Promise<number> => {
       let committed = 0;
@@ -487,10 +554,43 @@ export const openOperationalState = (path: string) => {
         traceId: row.traceId,
       };
     },
+    traceInventory: (options: TraceInventoryOptions): readonly SafeTraceSummary[] => {
+      const conditions = [
+        ...(options.state ? [eq(traceLifecycle.state, options.state)] : []),
+        ...(options.provider ? [eq(traceLifecycle.provider, options.provider)] : []),
+        ...(options.client ? [eq(traceLifecycle.client, options.client)] : []),
+        ...(options.since ? [gte(traceLifecycle.capturedAt, options.since)] : []),
+      ];
+      return db
+        .select({
+          capturedAt: traceLifecycle.capturedAt,
+          client: traceLifecycle.client,
+          provider: traceLifecycle.provider,
+          state: traceLifecycle.state,
+          traceId: traceLifecycle.traceId,
+          updatedAt: traceLifecycle.updatedAt,
+        })
+        .from(traceLifecycle)
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(desc(traceLifecycle.capturedAt), asc(traceLifecycle.traceId))
+        .limit(options.limit)
+        .offset(options.offset)
+        .all()
+        .map((row) => ({
+          capturedAt: row.capturedAt,
+          ...(row.client ? { client: row.client } : {}),
+          ...(row.provider ? { provider: row.provider } : {}),
+          state: row.state,
+          traceId: row.traceId,
+          updatedAt: new Date(row.updatedAt).toISOString(),
+        }));
+    },
     traces: (limit = 50, offset = 0): readonly SafeTraceSummary[] =>
       db
         .select({
           capturedAt: traceLifecycle.capturedAt,
+          client: traceLifecycle.client,
+          provider: traceLifecycle.provider,
           state: traceLifecycle.state,
           traceId: traceLifecycle.traceId,
           updatedAt: traceLifecycle.updatedAt,
@@ -502,6 +602,8 @@ export const openOperationalState = (path: string) => {
         .all()
         .map((row) => ({
           capturedAt: row.capturedAt,
+          ...(row.client ? { client: row.client } : {}),
+          ...(row.provider ? { provider: row.provider } : {}),
           state: row.state,
           traceId: row.traceId,
           updatedAt: new Date(row.updatedAt).toISOString(),

@@ -1,4 +1,5 @@
 import type { CaptureBootstrapV1, CaptureBootstrapV2 } from "@traice/api-contract";
+import { resolve } from "node:path";
 import { createCaptureEngine } from "@traice/capture-core";
 import {
   base64UrlToBytes,
@@ -9,7 +10,7 @@ import {
   sha256Hex,
   signBytes,
 } from "@traice/crypto";
-import type { CapturePolicyV1 } from "@traice/domain";
+import type { CapturePolicyV1, SignedSafeManifest } from "@traice/domain";
 import {
   createMarketplaceClient,
   createMarketplaceManifestClient,
@@ -18,6 +19,12 @@ import {
 import { canonicalBytes, canonicalJson, redactExchange } from "@traice/privacy-pipeline";
 import type { openOperationalState } from "@traice/state-sqlite";
 import { createS3CompatibleObjectStore } from "@traice/storage-s3";
+import {
+  createPlaintextTraceCache,
+  createTraceReader,
+  TraceReadError,
+  type TraceReadProgress,
+} from "@traice/trace-reader";
 import { Hono } from "hono";
 
 import {
@@ -31,6 +38,8 @@ import type { CaptureRoute } from "./capture-routes";
 type OperationalState = ReturnType<typeof openOperationalState>;
 
 export interface RuntimeOverrides {
+  readonly cacheDirectory?: string;
+  readonly cacheMaxBytes?: number;
   readonly marketplaceFetch?: MarketplaceFetch;
   readonly resolveRoute?: (routeToken: string) => Promise<CaptureRoute | undefined>;
   readonly upstreamFetch?: GatewayFetch;
@@ -84,6 +93,20 @@ export const createCaptureRuntime = (
     storageCredentials,
     state.multipartJournal
   );
+  const plaintextCache = createPlaintextTraceCache({
+    directory: overrides.cacheDirectory ?? resolve(process.cwd(), "cache", "decrypted"),
+    ...(overrides.cacheMaxBytes === undefined ? {} : { maxBytes: overrides.cacheMaxBytes }),
+  });
+  const traceReader = createTraceReader({
+    cache: plaintextCache,
+    getEnvelope: objectStore.getEnvelope,
+    resolveTrace: async (selector) => state.ownerTrace(selector, bootstrap.storage.prefix),
+    wrappingKey: base64UrlToBytes(vaultKey),
+  });
+  let storageReady = false;
+  let marketplaceState: "connected" | "disconnected" | "unavailable" = bootstrap.marketplace.credential
+    ? "unavailable"
+    : "disconnected";
   const policy: CapturePolicyV1 = {
     allowedMethods: ["POST"],
     allowedPaths: [...new Set(adapters.flatMap((adapter) => adapter.allowedPaths))],
@@ -107,8 +130,10 @@ export const createCaptureRuntime = (
     durableSink,
     {
       committed: ({ traceId }) => state.recordCommitted(traceId),
-      encrypted: ({ canonicalHash, ciphertextHash, traceId }) =>
-        state.recordEncrypted(traceId, canonicalHash, ciphertextHash),
+      encrypted: ({ canonicalHash, ciphertextHash, traceId }) => {
+        storageReady = true;
+        state.recordEncrypted(traceId, canonicalHash, ciphertextHash);
+      },
       failed: ({ code, stage, traceId }) => {
         if (stage === "manifest") {
           state.recordEvent("manifest.delivery_deferred", {
@@ -116,6 +141,7 @@ export const createCaptureRuntime = (
           });
           return;
         }
+        if (stage === "storage") storageReady = false;
         state.recordFailure(traceId, stage, code);
       },
       manifestPending: ({ clientManifestId, traceId }) =>
@@ -374,6 +400,7 @@ export const createCaptureRuntime = (
     gateway,
     deleteTrace,
     initialize: async () => {
+      await plaintextCache.purge();
       const checkedAt = new Date().toISOString();
       let storageProbe: Awaited<ReturnType<typeof objectStore.probe>>;
       try {
@@ -392,6 +419,7 @@ export const createCaptureRuntime = (
         };
       }
       const storagePassed = Object.values(storageProbe.checks).every(Boolean);
+      storageReady = storagePassed;
       const storagePayload = {
         bucketAlias: bootstrap.bucketAlias,
         checkedAt,
@@ -471,16 +499,63 @@ export const createCaptureRuntime = (
     },
     commitDataset,
     cleanupExpiredDeliveries,
+    clearTraceCache: plaintextCache.clear,
     pauseCapture: () => {
       captureEnabled = false;
     },
     prepareDelivery,
     proposeAgreement,
-    reconcile: () => state.reconcile(remoteSink),
+    purgeTraceCache: plaintextCache.purge,
+    readTrace: async (
+      selector: string,
+      onProgress: (event: TraceReadProgress) => void
+    ) => {
+      try {
+        const result = await traceReader.read(selector, { onProgress });
+        if (result.source === "storage") storageReady = true;
+        return { source: result.source, trace: result.trace };
+      } catch (error) {
+        if (error instanceof TraceReadError && error.code === "storage_unavailable") storageReady = false;
+        throw error;
+      }
+    },
+    marketplaceStatus: () => marketplaceState,
+    reconcile: async () => {
+      if (!bootstrap.marketplace.credential) return 0;
+      try {
+        for (const signed of state.pendingManifests()) {
+          if (
+            signed.manifest.deviceId === bootstrap.deviceId
+            && signed.manifest.capturePolicyId === bootstrap.policy.capturePolicyId
+            && signed.manifest.policyVersion === bootstrap.policy.policyVersion
+          ) continue;
+          const manifest = {
+            ...signed.manifest,
+            capturePolicyId: bootstrap.policy.capturePolicyId,
+            deviceId: bootstrap.deviceId,
+            policyVersion: bootstrap.policy.policyVersion,
+          } as SignedSafeManifest["manifest"];
+          state.replacePendingManifest({
+            manifest,
+            signature: await signBytes(bootstrap.signingPrivateKey, canonicalBytes(manifest)),
+          });
+        }
+        const pending = state.pendingManifests().length;
+        const committed = await state.reconcile(remoteSink);
+        if (pending === 0) await marketplace.workQueue();
+        marketplaceState = "connected";
+        return committed;
+      } catch (error) {
+        marketplaceState = "unavailable";
+        throw error;
+      }
+    },
     resumeCapture: () => {
       captureEnabled = true;
     },
     workQueue: async () => (await marketplace.workQueue()).data,
     scheduler,
+    storageReady: () => storageReady,
+    traceCacheStats: plaintextCache.stats,
   };
 };

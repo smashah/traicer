@@ -11,5 +11,6 @@
     "test:security": "bun test --pass-with-no-tests",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": { "effect": "catalog:" },
   "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
 }

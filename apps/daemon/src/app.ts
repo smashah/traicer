@@ -1,11 +1,13 @@
 import { Schema } from "effect";
 import { Hono } from "hono";
 import { Effect } from "effect";
-import { streamSSE } from "hono/streaming";
+import { stream, streamSSE } from "hono/streaming";
 
 import { PauseRequestV1 } from "@traice/api-contract";
 import { constantTimeEqual } from "@traice/crypto";
+import type { CanonicalTrace } from "@traice/domain";
 import type { CaptureControlShape } from "@traice/effect-runtime";
+import type { TraceReadProgress } from "@traice/trace-reader";
 
 import type { CaptureRouteInput } from "./capture-routes";
 
@@ -15,6 +17,7 @@ export interface ControlDependencies {
   readonly controlToken: string;
   readonly databaseReady: () => boolean;
   readonly commitDataset?: (requestId: string) => Promise<unknown>;
+  readonly clearTraceCache?: () => Promise<{ readonly removed: number }>;
   readonly gatewayReady?: () => boolean;
   readonly issueCaptureRoute?: (input: CaptureRouteInput) => Promise<{
     readonly expiresAt: string;
@@ -22,13 +25,20 @@ export interface ControlDependencies {
     readonly routeToken: string;
   }>;
   readonly instanceId?: string;
+  readonly marketplaceStatus?: () => "connected" | "disconnected" | "unavailable";
   readonly onPause?: () => void;
   readonly onResume?: () => void;
+  readonly onShutdown?: () => void;
   readonly proposeAgreement?: (requestId: string) => Promise<unknown>;
   readonly prepareDelivery?: (requestId: string) => Promise<unknown>;
   readonly protocolVersion?: 1 | 2;
   readonly revokeCaptureRoute?: (routeId: string) => Promise<boolean>;
   readonly queueCounts?: () => { readonly committed: number; readonly pending: number };
+  readonly storageReady?: () => boolean;
+  readonly readTrace?: (
+    selector: string,
+    onProgress: (event: TraceReadProgress) => void
+  ) => Promise<{ readonly source: "cache" | "storage"; readonly trace: CanonicalTrace }>;
   readonly eventsAfter?: (sequence: number) => readonly {
     readonly createdAt: string;
     readonly details: Readonly<Record<string, boolean | number | string>>;
@@ -43,6 +53,7 @@ export interface ControlDependencies {
     readonly updatedAt: string;
   }[];
   readonly workQueue?: () => Promise<readonly unknown[]>;
+  readonly traceCacheStats?: () => Promise<{ readonly bytes: number; readonly entries: number }>;
 }
 
 export const createControlApp = (dependencies: ControlDependencies) => {
@@ -71,6 +82,8 @@ export const createControlApp = (dependencies: ControlDependencies) => {
           : "ready"
         : "not_started",
       manifests: dependencies.queueCounts?.() ?? { committed: 0, pending: 0 },
+      marketplace: dependencies.marketplaceStatus?.() ?? "disconnected",
+      storage: dependencies.storageReady?.() ? "ready" : "unavailable",
       instanceId: dependencies.instanceId,
       protocolVersion: dependencies.protocolVersion ?? 1,
       spool: captureStatus === "paused" ? "paused" : "ready",
@@ -143,6 +156,55 @@ export const createControlApp = (dependencies: ControlDependencies) => {
     const limit = Number.parseInt(context.req.query("limit") ?? "50", 10);
     const offset = Number.parseInt(context.req.query("offset") ?? "0", 10);
     return context.json({ traces: dependencies.traces?.(limit, offset) ?? [] });
+  });
+
+  app.post("/v1/traces/read", async (context) => {
+    if (!dependencies.readTrace) {
+      return context.json({ code: "CAPTURE_NOT_CONFIGURED", message: "Trace reading is not configured" }, 409);
+    }
+    const input: { selector?: unknown } = await context.req
+      .json<{ selector?: unknown }>()
+      .catch(() => ({}));
+    if (typeof input.selector !== "string" || input.selector.length < 1 || input.selector.length > 1_024) {
+      return context.json({ code: "INVALID_REQUEST", message: "A trace ID or configured object key is required" }, 400);
+    }
+    const selector = input.selector;
+    context.header("cache-control", "no-store");
+    context.header("content-type", "application/x-ndjson; charset=utf-8");
+    return stream(context, async (output) => {
+      let writes = Promise.resolve();
+      const write = (value: unknown) => {
+        writes = writes.then(async () => {
+          await output.write(`${JSON.stringify(value)}\n`);
+        });
+      };
+      try {
+        const result = await dependencies.readTrace!(selector, (event) => {
+          write({ ...event, type: "progress" });
+        });
+        await writes;
+        await output.write(`${JSON.stringify({ ...result, type: "trace" })}\n`);
+      } catch {
+        await writes;
+        await output.write(`${JSON.stringify({
+          code: "TRACE_READ_FAILED",
+          message: "The selected trace could not be read safely",
+          type: "error",
+        })}\n`);
+      }
+    });
+  });
+
+  app.get("/v1/cache/plaintext", async (context) =>
+    context.json({
+      cache: await dependencies.traceCacheStats?.() ?? { bytes: 0, entries: 0 },
+      maxAgeDays: 7,
+    })
+  );
+
+  app.delete("/v1/cache/plaintext", async (context) => {
+    const cleared = await dependencies.clearTraceCache?.() ?? { removed: 0 };
+    return context.json({ cleared, success: true });
   });
 
   app.post("/v1/traces/:id/delete", async (context) => {
@@ -259,6 +321,14 @@ export const createControlApp = (dependencies: ControlDependencies) => {
     const captureStatus = await Effect.runPromise(dependencies.control.resume());
     dependencies.onResume?.();
     return context.json({ captureStatus, success: true });
+  });
+
+  app.post("/v1/control/shutdown", (context) => {
+    if (!dependencies.onShutdown) {
+      return context.json({ code: "SHUTDOWN_NOT_CONFIGURED", message: "Shutdown is not configured" }, 409);
+    }
+    queueMicrotask(() => dependencies.onShutdown?.());
+    return context.json({ accepted: true, success: true }, 202);
   });
 
   return app;

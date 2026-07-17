@@ -21,6 +21,7 @@
     "@traice/privacy-pipeline": "workspace:*",
     "@traice/state-sqlite": "workspace:*",
     "@traice/storage-s3": "workspace:*",
+    "@traice/trace-reader": "workspace:*",
     "effect": "catalog:",
     "hono": "catalog:"
   },

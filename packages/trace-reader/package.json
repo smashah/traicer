@@ -1,0 +1,25 @@
+{
+  "name": "@traice/trace-reader",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "lint": "tsc --noEmit",
+    "test": "bun test",
+    "test:security": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@traice/crypto": "workspace:*",
+    "@traice/domain": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}
