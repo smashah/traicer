@@ -16,11 +16,19 @@ import {
   readTraicerConfig,
   requiredSecret,
   type StorageProvider,
+  type TraicerConfig,
 } from "./config";
 import { locateDaemon } from "./daemon-locator";
 import { createHarnessLaunch } from "./harness";
 import { createProjectScopeResolver, parseProjectScopeId } from "./project-scope";
-import { createScaffold, encryptWithVarlock, type InitOptions, varlockCommand } from "./scaffold";
+import {
+  createScaffold,
+  encryptWithVarlock,
+  readExistingScaffold,
+  type InitOptions,
+  upgradeManagedInfrastructure,
+  varlockCommand,
+} from "./scaffold";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -102,13 +110,51 @@ const chooseCloudflareAccount = async (): Promise<CloudflareAccountId> => {
   return parseCloudflareAccountId(await ask("Cloudflare account ID"));
 };
 
+const deployInfrastructure = async (
+  infrastructureDirectory: string,
+  config: TraicerConfig
+): Promise<void> => {
+  if (await run(["pnpm", "install"], infrastructureDirectory) !== 0) process.exit(1);
+  const alchemyEnvironment = config.storage.provider === "cloudflare-r2"
+    ? {
+        CLOUDFLARE_ACCOUNT_ID: parseCloudflareAccountId(
+          new URL(config.storage.endpoint).hostname.split(".")[0] ?? ""
+        ),
+      }
+    : undefined;
+  if (await run(["pnpm", "alchemy", "deploy"], infrastructureDirectory, alchemyEnvironment) !== 0) {
+    process.exit(1);
+  }
+};
+
 const initialize = async () => {
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  const existing = await readExistingScaffold(directory);
+  if (existing) {
+    console.log(`Traicer is already initialized in ${directory}`);
+    if (!existing.infrastructureDirectory) {
+      console.log("This configuration does not have a managed storage deployment.");
+      return;
+    }
+    const deploy = hasFlag("--deploy") || (
+      !hasFlag("--yes")
+      && await choose("Resume storage deployment", ["yes", "no"] as const, "no") === "yes"
+    );
+    if (!deploy) {
+      console.log(`Resume with: traicer init --directory ${JSON.stringify(directory)} --deploy`);
+      return;
+    }
+    console.log(`Resuming storage deployment in ${existing.infrastructureDirectory}`);
+    await upgradeManagedInfrastructure(existing.infrastructureDirectory);
+    await deployInfrastructure(existing.infrastructureDirectory, existing.config);
+    return;
+  }
+
   const storage = (flag("--storage") ?? await choose(
     "Storage provider",
     ["cloudflare-r2", "aws-s3", "existing-s3"] as const,
     "cloudflare-r2"
   )) as StorageProvider;
-  const directory = resolve(flag("--directory") ?? defaultDirectory);
   const suppliedAccountId = flag("--account-id");
   const accountId = (suppliedAccountId === undefined ? undefined : parseCloudflareAccountId(suppliedAccountId)) ?? (
     storage === "cloudflare-r2" ? await chooseCloudflareAccount() : undefined
@@ -145,11 +191,7 @@ const initialize = async () => {
     console.log(`Alchemy v2 storage stack created in ${result.infrastructureDirectory}`);
     const deploy = hasFlag("--deploy") || (!hasFlag("--yes") && await choose("Deploy storage now", ["yes", "no"] as const, "no") === "yes");
     if (deploy) {
-      if (await run(["pnpm", "install"], result.infrastructureDirectory) !== 0) process.exit(1);
-      const alchemyEnvironment = storage === "cloudflare-r2" && options.accountId
-        ? { CLOUDFLARE_ACCOUNT_ID: options.accountId }
-        : undefined;
-      if (await run(["pnpm", "alchemy", "deploy"], result.infrastructureDirectory, alchemyEnvironment) !== 0) process.exit(1);
+      await deployInfrastructure(result.infrastructureDirectory, result.config);
     }
   }
   console.log(`Add the marketplace and S3 credentials to .env.local, then run: traicer secrets --directory ${JSON.stringify(directory)}`);
