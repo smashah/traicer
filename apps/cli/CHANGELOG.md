@@ -3,6 +3,13 @@
 
 
 
+
+## 0.2.3
+<sub>2026-07-17</sub>
+
+- [`609c814`](https://github.com/smashah/traicer/commit/609c814b405cefa14dac552c326edb030910a403)  *(patch)*
+  Made `traicer init` resumable after a managed storage deployment fails, while preserving existing configuration and encrypted device secrets.
+
 ## 0.2.2
 <sub>2026-07-17</sub>
 
