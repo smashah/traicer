@@ -82,23 +82,27 @@ export const createLocalOwnerAccess = async (directory: string) => {
   await cache.purge();
 
   const reader = () => {
-    const objectStore = createS3CompatibleObjectStore({
-      addressingStyle: config.storage.addressingStyle,
-      bucket: config.storage.bucket,
-      endpoint: config.storage.endpoint,
-      prefix: config.storage.prefix,
-      signingRegion: config.storage.signingRegion,
-      storageCapabilityProfileId: `s3-compatible:${config.storage.provider}`,
-    }, {
-      accessKeyId: requiredSecret("TRAICER_STORAGE_ACCESS_KEY_ID"),
-      secretAccessKey: requiredSecret("TRAICER_STORAGE_SECRET_ACCESS_KEY"),
-      ...(process.env.TRAICER_STORAGE_SESSION_TOKEN
-        ? { sessionToken: process.env.TRAICER_STORAGE_SESSION_TOKEN }
-        : {}),
-    });
+    let objectStore: ReturnType<typeof createS3CompatibleObjectStore> | undefined;
+    const getEnvelope: ReturnType<typeof createS3CompatibleObjectStore>["getEnvelope"] = (...input) => {
+      objectStore ??= createS3CompatibleObjectStore({
+        addressingStyle: config.storage.addressingStyle,
+        bucket: config.storage.bucket,
+        endpoint: config.storage.endpoint,
+        prefix: config.storage.prefix,
+        signingRegion: config.storage.signingRegion,
+        storageCapabilityProfileId: `s3-compatible:${config.storage.provider}`,
+      }, {
+        accessKeyId: requiredSecret("TRAICER_STORAGE_ACCESS_KEY_ID"),
+        secretAccessKey: requiredSecret("TRAICER_STORAGE_SECRET_ACCESS_KEY"),
+        ...(process.env.TRAICER_STORAGE_SESSION_TOKEN
+          ? { sessionToken: process.env.TRAICER_STORAGE_SESSION_TOKEN }
+          : {}),
+      });
+      return objectStore.getEnvelope(...input);
+    };
     return createTraceReader({
       cache,
-      getEnvelope: objectStore.getEnvelope,
+      getEnvelope,
       resolveTrace: async (selector) => state.ownerTrace(selector, config.storage.prefix),
       wrappingKey: base64UrlToBytes(requiredSecret("TRAICER_VAULT_KEY")),
     });
