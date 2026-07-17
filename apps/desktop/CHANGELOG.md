@@ -7,6 +7,12 @@
 
 
 
+
+## 0.3.1
+<sub>2026-07-17</sub>
+
+- [#25](https://github.com/smashah/traicer/pull/25) [`2c956ae`](https://github.com/smashah/traicer/commit/2c956aefa5f56edd16a6e7e74f069fdd2d112bad)  *(patch)* - Allow cached owner trace reads without requiring object-store credentials
+
 ## 0.3.0
 <sub>2026-07-17</sub>
 
