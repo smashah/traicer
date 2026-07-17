@@ -2,6 +2,13 @@
 
 
 
+
+## 0.2.2
+<sub>2026-07-17</sub>
+
+- [`b539612`](https://github.com/smashah/traicer/commit/b539612ba58f8ce167459d5833d836e54708e9a6)  *(patch)*
+  Fixed generated Alchemy storage projects failing to start with Effect beta.98 by pinning the compatible Alchemy beta.62 release.
+
 ## 0.2.1
 <sub>2026-07-16</sub>
 
