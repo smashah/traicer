@@ -20,12 +20,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@opentui/core": "^0.4.4",
+    "@opentui/react": "^0.4.4",
+    "react": "^19.2.7",
     "varlock": "1.10.0"
   },
   "devDependencies": {
     "@traice/api-contract": "workspace:*",
     "@traice/crypto": "workspace:*",
+    "@traice/state-sqlite": "workspace:*",
+    "@traice/storage-s3": "workspace:*",
+    "@traice/trace-reader": "workspace:*",
     "@types/bun": "catalog:",
+    "@types/react": "^19.2.17",
     "typescript": "catalog:"
   },
   "engines": {

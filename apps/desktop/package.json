@@ -23,7 +23,9 @@
     "@types/bun": "catalog:",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/react-test-renderer": "^19.1.0",
     "@vitejs/plugin-react": "catalog:desktop",
+    "react-test-renderer": "^19.2.7",
     "typescript": "catalog:",
     "vite": "catalog:desktop"
   }

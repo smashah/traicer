@@ -9,6 +9,7 @@ await mkdir(dist, { recursive: true });
 
 const cli = await Bun.build({
   entrypoints: [resolve(root, "src/index.ts")],
+  external: ["@opentui/core", "@opentui/react", "@opentui/react/*", "react", "react/*"],
   minify: true,
   naming: "cli.mjs",
   outdir: dist,

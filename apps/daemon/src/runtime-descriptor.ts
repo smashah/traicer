@@ -6,6 +6,7 @@ export interface RuntimeDescriptor {
   readonly gatewayPort: number;
   readonly instanceId: string;
   readonly pid: number;
+  readonly proxyPort?: number;
   readonly protocolVersion: 1 | 2;
   readonly schema: "traicer.runtime/1";
 }

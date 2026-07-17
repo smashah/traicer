@@ -127,16 +127,29 @@ describe("durable manifest outbox", () => {
     ).rejects.toThrow("503");
     expect(state.counts()).toEqual({ committed: 0, pending: 1 });
     expect(state.lifecycleState(id)).toBe("manifest_pending");
+    const rebound = {
+      manifest: {
+        ...state.pendingManifests()[0]!.manifest,
+        capturePolicyId: "11111111-1111-4111-8111-111111111111",
+        deviceId: "22222222-2222-4222-8222-222222222222",
+      },
+      signature: "replacement-signature",
+    } satisfies SignedSafeManifest;
+    state.replacePendingManifest(rebound);
+    expect(state.pendingManifests()).toEqual([rebound]);
 
     let submissions = 0;
+    let submitted: SignedSafeManifest | undefined;
     expect(
       await state.reconcile({
-        submit: async () => {
+        submit: async ({ manifests }) => {
           submissions += 1;
+          submitted = manifests[0];
         },
       })
     ).toBe(1);
     expect(submissions).toBe(1);
+    expect(submitted).toEqual(rebound);
     expect(state.counts()).toEqual({ committed: 1, pending: 0 });
     expect(state.lifecycleState(id)).toBe("committed");
     expect(state.traces(10, 0)[0]).toMatchObject({ state: "committed" });
@@ -182,6 +195,66 @@ describe("durable manifest outbox", () => {
     state.tombstoneTrace(id, id, "seller_requested");
     expect(state.traceObject(id)).toBeUndefined();
     expect(state.counts()).toEqual({ committed: 0, pending: 0 });
+    state.close();
+  });
+
+  test("resolves owner-readable traces by trace ID, ciphertext hash, or configured object key", () => {
+    const path = `/tmp/traicer-state-${crypto.randomUUID()}.db`;
+    paths.push(path);
+    const state = openOperationalState(path);
+    expect(state.integrityCheck()).toBeTrue();
+    const traceId = crypto.randomUUID();
+    const canonicalHash = "a".repeat(64);
+    const ciphertextHash = "b".repeat(64);
+    state.recordObserved(traceId, "2026-07-17T08:00:00.000Z");
+    state.recordEncrypted(traceId, canonicalHash, ciphertextHash);
+
+    expect(state.ownerTrace(traceId, "traices")).toEqual({
+      canonicalHash,
+      ciphertextHash,
+      traceId,
+    });
+    expect(state.ownerTrace(ciphertextHash, "traices")).toEqual({
+      canonicalHash,
+      ciphertextHash,
+      traceId,
+    });
+    expect(
+      state.ownerTrace(
+        `traices/objects/v1/${ciphertextHash.slice(0, 2)}/${ciphertextHash}.trce`,
+        "traices"
+      )
+    ).toEqual({ canonicalHash, ciphertextHash, traceId });
+    expect(
+      state.ownerTrace(
+        `another-prefix/objects/v1/${ciphertextHash.slice(0, 2)}/${ciphertextHash}.trce`,
+        "traices"
+      )
+    ).toBeUndefined();
+    state.close();
+  });
+
+  test("filters safe owner inventory deterministically without private locators", () => {
+    const path = `/tmp/traicer-state-${crypto.randomUUID()}.db`;
+    paths.push(path);
+    const state = openOperationalState(path);
+    const first = crypto.randomUUID();
+    const second = crypto.randomUUID();
+    state.recordObserved(first, "2026-07-16T08:00:00.000Z", { client: "claude", provider: "anthropic" });
+    state.recordObserved(second, "2026-07-17T08:00:00.000Z", { client: "codex", provider: "openai" });
+    state.recordEncrypted(second, "c".repeat(64), "d".repeat(64));
+
+    expect(state.traceInventory({ limit: 10, offset: 0, provider: "openai", state: "encrypted" })).toEqual([
+      expect.objectContaining({ client: "codex", provider: "openai", traceId: second }),
+    ]);
+    const json = JSON.stringify(state.traceInventory({
+      limit: 10,
+      offset: 0,
+      since: "2026-07-16T00:00:00.000Z",
+    }));
+    expect(json.indexOf(second)).toBeLessThan(json.indexOf(first));
+    expect(json).not.toContain("ciphertextHash");
+    expect(json).not.toContain("object");
     state.close();
   });
 });

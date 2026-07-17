@@ -45,7 +45,9 @@ export const daemonEnvironment = (environment: NodeJS.ProcessEnv): Record<string
   Object.fromEntries(
     Object.entries(environment).filter(
       (entry): entry is [string, string] =>
-        entry[1] !== undefined && entry[0] !== "__VARLOCK_ENV" && !entry[0].startsWith("TRAICER_")
+        entry[1] !== undefined
+        && entry[0] !== "__VARLOCK_ENV"
+        && (!entry[0].startsWith("TRAICER_") || entry[0] === "TRAICER_PLAINTEXT_CACHE_MAX_BYTES")
     )
   );
 

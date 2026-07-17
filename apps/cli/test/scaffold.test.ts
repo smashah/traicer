@@ -15,7 +15,7 @@ const keyPair = {
 };
 
 describe("Traicer init scaffold", () => {
-  test("makes the marketplace credential optional in an existing managed schema", async () => {
+  test("makes account and storage credentials optional to validate read-only commands", async () => {
     const directory = await mkdtemp(join(tmpdir(), "traicer-cli-"));
     await Bun.write(
       join(directory, ".env.schema"),
@@ -28,14 +28,21 @@ describe("Traicer init scaffold", () => {
     expect(await Bun.file(join(directory, ".env.schema")).text()).toStartWith(
       "# @optional @sensitive\nTRAICER_MARKETPLACE_CREDENTIAL=\n"
     );
+    expect(await Bun.file(join(directory, ".env.schema")).text()).toContain(
+      "# @optional @sensitive\nTRAICER_STORAGE_ACCESS_KEY_ID=\n"
+    );
+    expect(await Bun.file(join(directory, ".env.schema")).text()).toContain(
+      "# @optional\nTRAICER_PLAINTEXT_CACHE_MAX_BYTES=\n"
+    );
   });
 
   test("does not pass resolved secrets to the daemon environment", () => {
     expect(daemonEnvironment({
       __VARLOCK_ENV: "encrypted-blob",
       HOME: "/seller",
+      TRAICER_PLAINTEXT_CACHE_MAX_BYTES: "1048576",
       TRAICER_SIGNING_PRIVATE_KEY: "private-key",
-    })).toEqual({ HOME: "/seller" });
+    })).toEqual({ HOME: "/seller", TRAICER_PLAINTEXT_CACHE_MAX_BYTES: "1048576" });
   });
 
   test("creates an R2 stack and writes only encrypted device secrets", async () => {
@@ -79,6 +86,8 @@ describe("Traicer init scaffold", () => {
     expect(env).not.toContain("TRAICER_ADAPTER_CAPABILITY");
     expect(env).not.toContain(keyPair.privateKey);
     expect(schema).toContain("# @optional @sensitive\nTRAICER_MARKETPLACE_CREDENTIAL=");
+    expect(schema).toContain("# @optional @sensitive\nTRAICER_STORAGE_ACCESS_KEY_ID=");
+    expect(schema).toContain("# @optional @sensitive\nTRAICER_STORAGE_SECRET_ACCESS_KEY=");
     expect(schema).not.toContain("+TRAICER_");
     expect(stack).toContain(`process.env.CLOUDFLARE_ACCOUNT_ID ??= "${accountId}"`);
     expect(stack).toContain('Cloudflare.R2.Bucket("SellerTraces"');

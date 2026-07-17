@@ -127,6 +127,7 @@ describe("daemon capture runtime", () => {
       }
     );
     await runtime.initialize();
+    expect(runtime.storageReady()).toBeTrue();
 
     const response = await runtime.gateway.request(
       "http://127.0.0.1/openai/scoped-route/v1/responses",
@@ -171,6 +172,50 @@ describe("daemon capture runtime", () => {
     expect(egress).not.toContain("seller@example.com");
     expect(egress).toContain('"projectScopeId":"33333333-3333-4333-8333-333333333333"');
     expect(egress).not.toContain("22222222-2222-4222-8222-222222222222");
+
+    const connectedDeviceId = crypto.randomUUID();
+    const connectedPolicyId = crypto.randomUUID();
+    let migratedBatch: { manifests?: { manifest?: Record<string, unknown>; signature?: string }[] } | undefined;
+    const connectedRuntime = createCaptureRuntime(
+      {
+        ...bootstrap,
+        deviceId: connectedDeviceId,
+        policy: {
+          ...bootstrap.policy,
+          capturePolicyId: connectedPolicyId,
+          policyVersion: "policy/2",
+        },
+      },
+      bytesToBase64Url(wrappingKey),
+      state,
+      {
+        marketplaceFetch: async (request) => {
+          migratedBatch = await request.json() as typeof migratedBatch;
+          return new Response(JSON.stringify({ success: true }), { status: 202 });
+        },
+      }
+    );
+    expect(await connectedRuntime.reconcile()).toBe(1);
+    expect(migratedBatch?.manifests?.[0]?.manifest).toMatchObject({
+      capturePolicyId: connectedPolicyId,
+      deviceId: connectedDeviceId,
+      policyVersion: "policy/2",
+    });
+    expect(migratedBatch?.manifests?.[0]?.signature).toBeString();
+    expect(state.counts()).toEqual({ committed: 1, pending: 0 });
+    expect(connectedRuntime.marketplaceStatus()).toBe("connected");
+    storage.stop(true);
+    const failOpen = await runtime.gateway.request(
+      "http://127.0.0.1/openai/scoped-route/v1/responses",
+      {
+        body: JSON.stringify({ input: "storage health check", model: "gpt-test" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }
+    );
+    expect(failOpen.status).toBe(200);
+    await runtime.scheduler.drain();
+    expect(runtime.storageReady()).toBeFalse();
     state.close();
   });
 });

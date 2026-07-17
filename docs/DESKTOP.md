@@ -23,11 +23,11 @@ The setup form requires:
 
 - **Provider:** Anthropic Messages or OpenAI-compatible capture.
 - **Client label:** A local label such as `claude-code`, `codex`, or `opencode`.
-- **Marketplace API and credential:** The Traice Market API URL and a device-scoped seller credential.
+- **Marketplace API and credential:** The API URL is required, while the credential may be left empty during the local-first onboarding grace state.
 - **S3 endpoint, bucket, prefix, and region:** The dedicated seller-owned storage destination.
 - **Storage access key and secret:** Credentials scoped to the required bucket operations.
 
-Selecting **Authorise device and start** registers the device and signed capture policy with Traice Market, stores secrets in the operating-system credential vault, runs the storage and privacy checks, and starts the sidecar. The React webview receives only safe configuration and status.
+With a credential, selecting **Connect account and start** registers the device and signed capture policy with Traice Market. Without one, **Start local-first capture** creates a local device identity, keeps safe manifests pending in the durable outbox, and strongly prompts account connection; the next credential-backed start reconciles that history idempotently. In both modes, secrets stay in the operating-system credential vault and the React webview receives only safe configuration and status.
 
 ## Connect a coding client
 
@@ -51,6 +51,7 @@ The desktop app can:
 - Start, pause, resume, and stop capture.
 - Enable launch at login.
 - Show safe local trace summaries and request permanent deletion with a signed marketplace tombstone.
+- Lazily inspect one verified/decrypted trace and explicitly export JSON through the native save dialog. POSIX exports use mode `0600`; Windows exports inherit the ACL of the user-selected destination, so use a private user-profile directory for sensitive traces.
 - Fetch marketplace requests, commit an eligible local dataset, propose the exact signed agreement root, and prepare buyer-encrypted delivery after acceptance.
 - Check and install Tauri-signed updates for supported platforms.
 
@@ -59,5 +60,7 @@ Deleting a trace removes seller-storage ciphertext, submits a signed tombstone, 
 ## Local data and diagnostics
 
 Configuration and secrets live in the operating-system credential vault. Operational state, encrypted-spool metadata, manifest outbox state, and safe trace lifecycle data live in the daemon's local SQLite database.
+
+Decrypted inspection data uses the same reader and lifecycle as the CLI cache, gzip-compressed, capped at 512 MiB by default, and removed after seven days. It is created only after **View** or **Export** selects a trace; the app never pre-downloads the inventory. Export opens the native save dialog before any download or decryption begins, and cancellation leaves no plaintext file behind. The detail pane and selected export destination are plaintext boundaries and may contain sensitive seller data.
 
 Diagnostics contain bounded status, counters, and version identifiers. They exclude trace bodies, credentials, object locators, local paths, and raw errors. Even so, review diagnostic output before sharing it and use private security reporting for suspected vulnerabilities.

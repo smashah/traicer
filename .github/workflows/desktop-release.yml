@@ -41,8 +41,30 @@ jobs:
     permissions:
       contents: read
 
+  cli-smoke:
+    needs: release-context
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Load the published CLI and OpenTUI native dependencies
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if bunx "@traice-market/traicer@${{ needs.release-context.outputs.version }}" __opentui-smoke; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
+
   package:
-    needs: [release-context, verify]
+    needs: [release-context, verify, cli-smoke]
     env:
       APPLE_SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
     strategy:

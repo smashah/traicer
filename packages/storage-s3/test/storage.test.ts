@@ -13,6 +13,28 @@ afterEach(() => {
 });
 
 describe("S3-compatible storage", () => {
+  test("rejects an oversized trace from Content-Length before reading its body", async () => {
+    const server = Bun.serve({
+      fetch: () => new Response(new Uint8Array(5), {
+        headers: { "content-length": "5" },
+      }),
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    servers.push(server);
+    const store = createS3CompatibleObjectStore({
+      addressingStyle: "path",
+      bucket: "seller-bucket",
+      endpoint: `http://127.0.0.1:${server.port}`,
+      maxTraceEnvelopeBytes: 4,
+      prefix: "traice",
+      signingRegion: "auto",
+      storageCapabilityProfileId: "loopback-s3-v1",
+    }, { accessKeyId: "fixture-access", secretAccessKey: "fixture-secret" });
+
+    await expect(store.getEnvelope("a".repeat(64))).rejects.toThrow("size limit");
+  });
+
   test("SigV4 client uploads, heads, reads back, presigns and deletes ciphertext", async () => {
     const objects = new Map<string, { bytes: Uint8Array; digest: string }>();
     const server = Bun.serve({

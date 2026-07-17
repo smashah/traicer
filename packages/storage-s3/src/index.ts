@@ -20,6 +20,7 @@ export interface S3CompatibleConfig {
   readonly bucket: string;
   readonly endpoint: string;
   readonly prefix: string;
+  readonly maxTraceEnvelopeBytes?: number;
   readonly signingRegion: string;
   readonly storageCapabilityProfileId: string;
 }
@@ -45,14 +46,69 @@ const objectKey = (prefix: string, ciphertextHash: string): string => {
   return `${normalized ? `${normalized}/` : ""}objects/v1/${ciphertextHash.slice(0, 2)}/${ciphertextHash}.trce`;
 };
 
-const bytesFromBody = async (body: unknown): Promise<Uint8Array> => {
+export interface ObjectDownloadProgress {
+  readonly completedBytes: number;
+  readonly totalBytes?: number;
+}
+
+export const MAX_TRACE_ENVELOPE_BYTES = 64 * 1024 * 1024;
+
+const bytesFromBody = async (
+  body: unknown,
+  onProgress?: (progress: ObjectDownloadProgress) => void,
+  totalBytes?: number,
+  maxBytes = MAX_TRACE_ENVELOPE_BYTES,
+): Promise<Uint8Array> => {
+  if (totalBytes !== undefined && totalBytes > maxBytes) {
+    throw new Error("Stored trace exceeds the local inspection size limit");
+  }
+  if (body && typeof body === "object" && "transformToWebStream" in body) {
+    const transform = Reflect.get(body, "transformToWebStream");
+    if (typeof transform === "function") {
+      const stream = Reflect.apply(transform, body, []) as ReadableStream<Uint8Array>;
+      const reader = stream.getReader();
+      const chunks: Uint8Array[] = [];
+      let completedBytes = 0;
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        const chunk = Uint8Array.from(next.value);
+        completedBytes += chunk.byteLength;
+        if (completedBytes > maxBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("Stored trace exceeds the local inspection size limit");
+        }
+        chunks.push(chunk);
+        onProgress?.({ completedBytes, ...(totalBytes === undefined ? {} : { totalBytes }) });
+      }
+      const bytes = new Uint8Array(completedBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return bytes;
+    }
+  }
   if (body && typeof body === "object" && "transformToByteArray" in body) {
     const transform = Reflect.get(body, "transformToByteArray");
     if (typeof transform === "function") {
-      return new Uint8Array(await Reflect.apply(transform, body, []));
+      if (totalBytes === undefined) {
+        throw new Error("Stored trace size is unavailable for bounded local inspection");
+      }
+      const bytes = new Uint8Array(await Reflect.apply(transform, body, []));
+      if (bytes.byteLength > maxBytes) {
+        throw new Error("Stored trace exceeds the local inspection size limit");
+      }
+      onProgress?.({ completedBytes: bytes.byteLength, ...(totalBytes === undefined ? {} : { totalBytes }) });
+      return bytes;
     }
   }
   if (body instanceof Uint8Array) {
+    if (body.byteLength > maxBytes) {
+      throw new Error("Stored trace exceeds the local inspection size limit");
+    }
+    onProgress?.({ completedBytes: body.byteLength, ...(totalBytes === undefined ? {} : { totalBytes }) });
     return body;
   }
   throw new Error("S3-compatible response body is not readable");
@@ -65,13 +121,20 @@ export const createS3CompatibleObjectStore = (
 ): SellerObjectStore & {
   readonly abortMultipart: (ciphertextHash: string) => Promise<boolean>;
   readonly deleteEnvelope: (ciphertextHash: string) => Promise<void>;
-  readonly getEnvelope: (ciphertextHash: string) => Promise<Uint8Array>;
+  readonly getEnvelope: (
+    ciphertextHash: string,
+    onProgress?: (progress: ObjectDownloadProgress) => void
+  ) => Promise<Uint8Array>;
   readonly presignGet: (ciphertextHash: string, expiresInSeconds: number) => Promise<string>;
   readonly probe: () => Promise<{
     readonly checks: Readonly<Record<"capabilityCreate" | "capabilityExpire" | "delete" | "head" | "readIntegrity" | "write", boolean>>;
     readonly versioningEnabled: boolean | undefined;
   }>;
 } => {
+  const maxTraceEnvelopeBytes = config.maxTraceEnvelopeBytes ?? MAX_TRACE_ENVELOPE_BYTES;
+  if (!Number.isSafeInteger(maxTraceEnvelopeBytes) || maxTraceEnvelopeBytes < 1) {
+    throw new Error("Trace inspection size limit is invalid");
+  }
   const endpoint = new URL(config.endpoint);
   if (
     endpoint.protocol !== "https:" &&
@@ -161,12 +224,17 @@ export const createS3CompatibleObjectStore = (
         })
       );
     },
-    getEnvelope: async (ciphertextHash) => {
+    getEnvelope: async (ciphertextHash, onProgress) => {
       const response = await client.send(new GetObjectCommand({
         Bucket: config.bucket,
         Key: objectKey(config.prefix, ciphertextHash),
       }));
-      const bytes = await bytesFromBody(response.Body);
+      const bytes = await bytesFromBody(
+        response.Body,
+        onProgress,
+        response.ContentLength,
+        maxTraceEnvelopeBytes,
+      );
       if ((await sha256Hex(bytes)) !== ciphertextHash) throw new Error("Downloaded ciphertext hash mismatch");
       return bytes;
     },

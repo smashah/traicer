@@ -78,3 +78,29 @@ test("reset destroys managed Cloudflare storage and preserves unrelated files", 
   expect(secondExitCode).toBe(0);
   expect(secondStdout).toContain("Nothing to reset");
 });
+
+test("reset refuses to delete local state while a runtime descriptor exists", async () => {
+  const root = await mkdtemp(join(tmpdir(), "traicer-reset-running-"));
+  const directory = join(root, "config");
+  await mkdir(directory);
+  await writeFile(join(directory, "traicer.config.json"), "{}\n");
+  await writeFile(join(directory, ".runtime.json"), JSON.stringify({ controlPort: 44001, pid: 1234 }));
+
+  const child = Bun.spawn([
+    process.execPath,
+    join(import.meta.dir, "../src/index.ts"),
+    "reset",
+    "--yes",
+    "--directory",
+    directory,
+  ], { stderr: "pipe", stdout: "pipe" });
+  const [exitCode, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+  ]);
+
+  expect(exitCode).not.toBe(0);
+  expect(stderr).toContain("traicer stop");
+  expect(await exists(join(directory, "traicer.config.json"))).toBe(true);
+  expect(await exists(join(directory, ".runtime.json"))).toBe(true);
+});

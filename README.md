@@ -21,7 +21,7 @@ You will need:
 
 Start with the desktop app if this is your first time using Traicer. It guides you through setup, keeps secrets in your operating-system credential vault, and gives you a complete URL to copy into your coding client.
 
-Choose the CLI when you want file-based configuration or need to generate Cloudflare R2 or AWS S3 infrastructure. The current CLI is intended for operators: it starts the capture service, but it does not yet print the complete capability-bearing gateway URL you need for routine client setup.
+Choose the CLI when you want file-based configuration or need to generate Cloudflare R2 or AWS S3 infrastructure. It can run the service in the background, report safe status, launch supported clients without exposing route tokens, and reveal short-lived capability-bearing URLs when you explicitly request them.
 
 | | Desktop app | CLI |
 | --- | --- | --- |
@@ -33,8 +33,8 @@ Choose the CLI when you want file-based configuration or need to generate Cloudf
 
 1. **Download the installer.** Choose the DMG for your Mac architecture, the setup EXE or MSI for Windows, or the DEB for Debian or Ubuntu. The `.app.tar.gz` files and `latest.json` on the release page are updater assets, not installers.
 2. **Verify the download.** Compare the installer's SHA-256 digest with the checksum published on the release before opening it.
-3. **Connect your accounts and storage.** Enter your Traice Market device credential, provider, bucket endpoint, bucket name, region, and scoped storage credentials.
-4. **Start Traicer.** Select **Authorise device and start**. Traicer checks your storage and privacy configuration before it starts accepting capture traffic.
+3. **Connect storage and, when available, your account.** Storage is mandatory. You may begin in the clearly marked local-first state without a Traice Market credential, then connect an account later to reconcile pending safe metadata.
+4. **Start Traicer.** Select **Start local-first capture** or **Connect account and start**. Traicer checks your storage and privacy configuration before it starts accepting capture traffic.
 5. **Connect your coding client.** Copy the gateway URL shown in Traicer and use it as your client's provider base URL. Keep your normal Anthropic or OpenAI API key configured in the client.
 6. **Send a supported request.** After the provider responds successfully, check **Local trace lifecycle** in Traicer for the new safe trace summary.
 
@@ -63,7 +63,8 @@ Add your storage credentials and, if you have one, your marketplace credential t
 
 ```sh
 bunx @traice-market/traicer secrets
-bunx @traice-market/traicer start
+bunx @traice-market/traicer start --detach
+bunx @traice-market/traicer status
 ```
 
 In a second terminal, link the current Git repository and exercise the preview launch configuration through a temporary scoped route:

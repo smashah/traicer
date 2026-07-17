@@ -129,4 +129,61 @@ describe("private control API", () => {
     expect(response.status).toBe(200);
     expect(deleted).toEqual(["trace-1:Seller requested permanent deletion"]);
   });
+
+  test("streams explicit owner inspection progress and plaintext only over the authenticated loopback API", async () => {
+    const trace = {
+      adapter: "openai-responses/1",
+      capturedAt: "2026-07-17T08:00:00.000Z",
+      client: "codex",
+      model: "gpt-test",
+      provider: "openai",
+      redaction: { detectorVersion: "builtin/1", profile: "strict-default", replacements: {} },
+      request: { input: "owner-visible" },
+      response: { body: { output: "owner-visible" }, status: 200 },
+      schema: "traice.trace/1",
+      traceId: "trace-1",
+      usage: { inputTokens: 2, outputTokens: 3 },
+    } as const;
+    const app = createControlApp({
+      control: makeCaptureControl(),
+      controlToken: token,
+      databaseReady: () => true,
+      readTrace: async (selector, onProgress) => {
+        expect(selector).toBe("trace-1");
+        onProgress({ completedBytes: 50, phase: "download", totalBytes: 100 });
+        onProgress({ phase: "decrypt" });
+        return { source: "storage", trace };
+      },
+    });
+    const response = await app.request("http://127.0.0.1/v1/traces/read", {
+      body: JSON.stringify({ selector: "trace-1" }),
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect((await response.text()).trim().split("\n").map((line) => JSON.parse(line))).toEqual([
+      { completedBytes: 50, phase: "download", totalBytes: 100, type: "progress" },
+      { phase: "decrypt", type: "progress" },
+      { source: "storage", trace, type: "trace" },
+    ]);
+  });
+
+  test("accepts shutdown only through the authenticated loopback control path", async () => {
+    let shutdowns = 0;
+    const app = createControlApp({
+      control: makeCaptureControl(),
+      controlToken: token,
+      databaseReady: () => true,
+      onShutdown: () => { shutdowns += 1; },
+    });
+    expect((await app.request("http://127.0.0.1/v1/control/shutdown", { method: "POST" })).status).toBe(401);
+    const response = await app.request("http://127.0.0.1/v1/control/shutdown", {
+      headers: { authorization: `Bearer ${token}` },
+      method: "POST",
+    });
+    expect(response.status).toBe(202);
+    await Bun.sleep(0);
+    expect(shutdowns).toBe(1);
+  });
 });

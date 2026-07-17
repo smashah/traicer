@@ -19,8 +19,20 @@ import {
   type StorageProvider,
   type TraicerConfig,
 } from "./config";
-import { locateDaemon } from "./daemon-locator";
+import {
+  locateDaemon,
+  removeUnreachableRuntimeDescriptor,
+  runtimeDescriptorExists,
+} from "./daemon-locator";
 import { createHarnessLaunch } from "./harness";
+import { waitForDaemonReady, waitForDaemonStop } from "./lifecycle";
+import { createLocalOwnerAccess, parseTraceFilters } from "./local-owner-access";
+import {
+  formatCanonicalTrace,
+  formatTraceList,
+  type TraceExportFormat,
+  writeTraceExport,
+} from "./owner-access";
 import { createProjectScopeResolver, parseProjectScopeId } from "./project-scope";
 import {
   createScaffold,
@@ -31,6 +43,12 @@ import {
   upgradeManagedSecretSchema,
   varlockCommand,
 } from "./scaffold";
+import {
+  createServiceClient,
+  formatInstructions,
+  formatProviderUrls,
+  formatServiceStatus,
+} from "./service-commands";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -150,6 +168,9 @@ const cloudflareEnvironment = (config: TraicerConfig): Readonly<Record<string, s
 
 const reset = async () => {
   const directory = resolve(flag("--directory") ?? defaultDirectory);
+  if (await Bun.file(resolve(directory, ".runtime.json")).exists()) {
+    throw new Error(`Traicer may still be running; run \`traicer stop --directory ${JSON.stringify(directory)}\` before reset`);
+  }
   const existing = await readExistingScaffold(directory);
   if (!existing) {
     console.log(`Nothing to reset in ${directory}`);
@@ -194,6 +215,7 @@ const reset = async () => {
     ".runtime.json",
     "project-links.json",
     ".alchemy",
+    "cache",
     "infra",
   ];
   const entries = await readdir(directory);
@@ -273,7 +295,8 @@ const initialize = async () => {
     }
   }
   console.log(`Add the S3 credentials and, if available, the marketplace credential to .env.local, then run: traicer secrets --directory ${JSON.stringify(directory)}`);
-  console.log(`Start capture with: traicer start --directory ${JSON.stringify(directory)}`);
+  console.log(`Start capture in the background with: traicer start --detach --directory ${JSON.stringify(directory)}`);
+  console.log("Initialization does not start a proxy or background service on its own.");
 };
 
 const encryptSecrets = async () => {
@@ -285,16 +308,40 @@ const encryptSecrets = async () => {
 const startResolved = async () => {
   const directory = resolve(flag("--directory") ?? defaultDirectory);
   const bootstrap = createBootstrap(await readTraicerConfig(directory));
+  if (hasFlag("--detach")) {
+    const existing = await locateDaemon(directory, bootstrap.controlToken).catch(() => undefined);
+    if (existing) {
+      console.log(`Traicer is already running${existing.pid ? ` as pid ${existing.pid}` : ""}`);
+      return;
+    }
+  }
   const daemonPath = resolve(import.meta.dir, "daemon.mjs");
   const child = Bun.spawn([process.execPath, daemonPath], {
     cwd: directory,
     env: daemonEnvironment(process.env),
-    stderr: "inherit",
+    stderr: hasFlag("--detach") ? "ignore" : "inherit",
     stdin: "pipe",
-    stdout: "inherit",
+    stdout: hasFlag("--detach") ? "pipe" : "inherit",
   });
   child.stdin.write(JSON.stringify(bootstrap));
   child.stdin.end();
+  if (hasFlag("--detach")) {
+    if (!(child.stdout instanceof ReadableStream)) {
+      child.kill();
+      throw new Error("Traicer could not observe daemon readiness");
+    }
+    try {
+      const ready = await waitForDaemonReady(child.stdout);
+      child.unref();
+      console.log(`Traicer started in the background as pid ${ready.pid}`);
+      console.log(`Run \`traicer status --directory ${JSON.stringify(directory)}\` for safe runtime details.`);
+      return;
+    } catch (error) {
+      child.kill();
+      await child.exited.catch(() => undefined);
+      throw error;
+    }
+  }
   process.exitCode = await child.exited;
 };
 
@@ -313,19 +360,235 @@ const start = async () => {
     "__start",
     "--directory",
     directory,
+    ...(hasFlag("--detach") ? ["--detach"] : []),
   ], import.meta.dir);
   process.exitCode = code;
 };
 
-const help = () => console.log(`Traicer ${packageJson.version}\n\nUsage:\n  traicer init [--storage cloudflare-r2|aws-s3|existing-s3] [options]\n  traicer reset [--directory <path>] [--yes] [--state-store]\n  traicer secrets [--directory <path>]\n  traicer start [--directory <path>]\n\nInit options:\n  --account-id <id>       Cloudflare account ID for R2\n  --bucket <name>         Bucket name (required for existing S3)\n  --deploy                Confirm and run the Alchemy deployment\n  --directory <path>      Config directory (default: ~/.config/traicer)\n  --endpoint <url>        Existing S3-compatible endpoint\n  --marketplace-url <url> Traice Market API base URL\n  --region <region>       AWS/signing region (default: us-east-1)\n  --yes                   Accept safe defaults; never implies --deploy\n\nReset options:\n  --state-store           Also remove Alchemy's account-level Cloudflare state store\n  --yes                   Confirm destruction without prompting\n\nTraicer generates Anthropic and OpenAI route configuration over one seller-owned storage bucket.\n`);
+const stopResolved = async () => {
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  const controlToken = requiredSecret("TRAICER_CONTROL_TOKEN");
+  const daemon = await locateDaemon(directory, controlToken).catch(() => undefined);
+  if (!daemon) {
+    const removed = await removeUnreachableRuntimeDescriptor(directory, controlToken);
+    console.log(removed ? "Traicer is not running; removed its stale runtime descriptor" : "Traicer is not running");
+    return;
+  }
+  const response = await fetch(`${daemon.controlBaseUrl}/v1/control/shutdown`, {
+    headers: { authorization: `Bearer ${controlToken}` },
+    method: "POST",
+  });
+  if (response.status !== 202) throw new Error("Traicer refused the authenticated shutdown request");
+  await waitForDaemonStop(async () => {
+    const health = await fetch(`${daemon.controlBaseUrl}/v1/health`, {
+      headers: { authorization: `Bearer ${controlToken}` },
+    }).catch(() => undefined);
+    return !health?.ok && !await runtimeDescriptorExists(directory);
+  });
+  console.log("Traicer stopped");
+};
 
-const withResolvedSecrets = async (internalCommand: "__project" | "__run") => {
+const help = () => console.log(`Traicer ${packageJson.version}\n\nUsage:\n  traicer init [--storage cloudflare-r2|aws-s3|existing-s3] [options]\n  traicer reset [--directory <path>] [--yes] [--state-store]\n  traicer secrets [--directory <path>]\n  traicer start [--directory <path>] [--detach]\n  traicer stop [--directory <path>]\n  traicer traces list [--limit <count>] [--offset <count>] [--json]\n  traicer traces show <trace-id|object-key> [--json]\n  traicer traces export <trace-id|object-key> --output <path> [--force]\n  traicer traces cache status|clear [--json]\n  traicer explore\n  traicer status [--json]\n  traicer urls [--reveal] [--json]\n  traicer instructions [--reveal] [--json]\n\nInit options:\n  --account-id <id>       Cloudflare account ID for R2\n  --bucket <name>         Bucket name (required for existing S3)\n  --deploy                Confirm and run the Alchemy deployment\n  --directory <path>      Config directory (default: ~/.config/traicer)\n  --endpoint <url>        Existing S3-compatible endpoint\n  --marketplace-url <url> Traice Market API base URL\n  --region <region>       AWS/signing region (default: us-east-1)\n  --yes                   Accept safe defaults; never implies --deploy\n\nReset options:\n  --state-store           Also remove Alchemy's account-level Cloudflare state store\n  --yes                   Confirm destruction without prompting\n\nTraicer generates Anthropic and OpenAI route configuration over one seller-owned storage bucket.\n`);
+
+const withResolvedSecrets = async (
+  internalCommand: "__explore" | "__project" | "__run" | "__service" | "__stop" | "__traces",
+  forwardedArgs = args.slice(1)
+) => {
   const directory = resolve(flag("--directory") ?? defaultDirectory);
   await upgradeManagedSecretSchema(directory);
   process.exitCode = await run([
     ...varlockCommand("run"), "--path", directory, "--inject", "vars", "--",
-    process.execPath, import.meta.path, internalCommand, ...args.slice(1),
+    process.execPath, import.meta.path, internalCommand, ...forwardedArgs,
   ], process.cwd());
+};
+
+const exploreResolved = async () => {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("Traices Explorer requires an interactive terminal");
+  }
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  const client = await createLocalOwnerAccess(directory);
+  try {
+    const { launchExplorer } = await import("./explorer");
+    await launchExplorer(client, async (traceId, trace) =>
+      writeTraceExport(resolve(process.cwd(), `${traceId}.json`), trace)
+    );
+  } finally {
+    client.close();
+  }
+};
+
+const serviceResolved = async () => {
+  const action = args[1];
+  if (action !== "status" && action !== "urls" && action !== "instructions") {
+    throw new Error("Unknown service discovery command");
+  }
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  const controlToken = requiredSecret("TRAICER_CONTROL_TOKEN");
+  let daemon;
+  try {
+    daemon = await locateDaemon(directory, controlToken);
+  } catch (error) {
+    if (action === "status") {
+      const stopped = {
+        running: false,
+        state: error instanceof Error ? error.message : "Traicer is not running",
+      };
+      console.log(hasFlag("--json") ? JSON.stringify(stopped, null, 2) : `Daemon: stopped\n${stopped.state}`);
+      return;
+    }
+    throw new Error("Traicer is not running; start it with `traicer start --detach`, then retry this command");
+  }
+  const service = createServiceClient({ connection: daemon, controlToken });
+  if (action === "status") {
+    const status = await service.status();
+    console.log(hasFlag("--json") ? JSON.stringify(status, null, 2) : formatServiceStatus(status));
+    return;
+  }
+  if (!hasFlag("--reveal")) {
+    if (action === "instructions") {
+      console.log(hasFlag("--json")
+        ? JSON.stringify({ commands: [
+            "traicer project link",
+            "traicer run -- claude",
+            "traicer run -- codex",
+            "traicer run -- opencode",
+          ] }, null, 2)
+        : formatInstructions());
+      return;
+    }
+    const safe = {
+      gateway: daemon.gatewayBaseUrl,
+      message: "Provider URLs require a short-lived project route. Re-run with --reveal to print bearer capabilities.",
+      proxy: daemon.proxyBaseUrl ?? null,
+    };
+    console.log(hasFlag("--json")
+      ? JSON.stringify(safe, null, 2)
+      : [`Gateway: ${safe.gateway}`, ...(safe.proxy ? [`Explicit TLS proxy: ${safe.proxy}`] : []), safe.message].join("\n"));
+    return;
+  }
+  const project = await createProjectScopeResolver({
+    directory,
+    mappingKey: requiredSecret("TRAICER_PROJECT_MAPPING_KEY"),
+  }).resolve(process.cwd());
+  if (project.kind !== "linked") {
+    throw new Error(`This repository isn't linked (${project.kind}); run \`traicer project link\` first`);
+  }
+  const urls = await service.urls(project.projectScopeId);
+  if (action === "instructions") {
+    console.log(hasFlag("--json") ? JSON.stringify({ instructions: formatInstructions(urls), urls }, null, 2) : formatInstructions(urls));
+  } else {
+    console.log(hasFlag("--json") ? JSON.stringify(urls, null, 2) : formatProviderUrls(urls));
+  }
+};
+
+const tracesResolved = async () => {
+  const directory = resolve(flag("--directory") ?? defaultDirectory);
+  const client = await createLocalOwnerAccess(directory);
+  try {
+  const action = args[1] ?? "list";
+  if (action === "list") {
+    const filters = parseTraceFilters({
+      ...(flag("--client") ? { client: flag("--client") } : {}),
+      ...(flag("--limit") ? { limit: flag("--limit") } : {}),
+      ...(flag("--offset") ? { offset: flag("--offset") } : {}),
+      ...(flag("--provider") ? { provider: flag("--provider") } : {}),
+      ...(flag("--since") ? { since: flag("--since") } : {}),
+      ...(flag("--state") ? { state: flag("--state") } : {}),
+    });
+    const traces = await client.list(filters);
+    console.log(hasFlag("--json")
+      ? JSON.stringify({ schema: "traicer.trace-inventory/1", traces }, null, 2)
+      : formatTraceList(traces));
+    return;
+  }
+  if (action === "cache") {
+    const cacheAction = args[2] ?? "status";
+    if (cacheAction === "status") {
+      const status = await client.cacheStats();
+      console.log(hasFlag("--json")
+        ? JSON.stringify(status, null, 2)
+        : `Plaintext cache: ${status.entries} entries, ${status.bytes} compressed bytes, ${status.maxAgeDays}-day maximum age`);
+      return;
+    }
+    if (cacheAction === "clear") {
+      const cleared = await client.clearCache();
+      console.log(`Removed ${cleared.removed} plaintext cache ${cleared.removed === 1 ? "entry" : "entries"}`);
+      return;
+    }
+    throw new Error(`Unknown traces cache command: ${cacheAction}`);
+  }
+  const selectors = args.slice(2, args.findIndex((value, index) => index >= 2 && value.startsWith("--")) < 0
+    ? args.length
+    : args.findIndex((value, index) => index >= 2 && value.startsWith("--")));
+  const selector = selectors[0];
+  if (!selector) {
+    throw new Error(`Pass a trace ID or configured object key to \`traicer traces ${action}\``);
+  }
+  if (action === "show" && selectors.length !== 1) throw new Error("traces show accepts exactly one selector");
+  if (action !== "show" && action !== "export") throw new Error(`Unknown traces command: ${action}`);
+  if (selectors.length > 100) throw new Error("A single export is limited to 100 traces");
+  if (action === "show") {
+    if (!process.stdout.isTTY && !hasFlag("--stdout")) {
+      throw new Error("Refusing to write plaintext to a non-interactive output; pass --stdout deliberately");
+    }
+    if (process.stdout.isTTY) {
+      console.error("This reveals decrypted prompts, responses, and source fragments in terminal scrollback.");
+      if ((await ask("Type reveal to continue")) !== "reveal") {
+        console.log("Reveal cancelled");
+        return;
+      }
+    }
+  }
+  const output = action === "export" ? flag("--output") : undefined;
+  if (action === "export" && !output) {
+    throw new Error("Pass --output <path> for an explicit plaintext export destination");
+  }
+  const format = (flag("--format") ?? "json") as TraceExportFormat;
+  if (action === "export" && !(["json", "jsonl", "markdown"] as const).includes(format)) {
+    throw new Error("--format must be json, jsonl, or markdown");
+  }
+  if (action === "export") console.error("Warning: the export contains sensitive decrypted plaintext.");
+  const readOne = async (selected: string) => client.read(selected, (event) => {
+    if (!process.stderr.isTTY) return;
+    const progress = event.totalBytes && event.completedBytes !== undefined
+      ? ` ${Math.min(100, Math.round(event.completedBytes / event.totalBytes * 100))}%`
+      : "";
+    process.stderr.write(`\r${event.phase}${progress}`.padEnd(32));
+  }).catch(() => {
+    throw new Error("The selected trace could not be read safely");
+  });
+  const result = await readOne(selector);
+  if (process.stderr.isTTY) process.stderr.write("\r".padEnd(32) + "\r");
+  if (action === "show") {
+    console.log(hasFlag("--json") ? JSON.stringify(result.trace, null, 2) : formatCanonicalTrace(result.trace));
+    return;
+  }
+  if (action === "export") {
+    const maximumPlaintextBytes = 64 * 1024 * 1024;
+    const results = [result];
+    let plaintextBytes = Buffer.byteLength(JSON.stringify(result.trace));
+    if (plaintextBytes > maximumPlaintextBytes) {
+      throw new Error("A single plaintext export is limited to 64 MiB");
+    }
+    for (const selected of selectors.slice(1)) {
+      const next = await readOne(selected);
+      plaintextBytes += Buffer.byteLength(JSON.stringify(next.trace));
+      if (plaintextBytes > maximumPlaintextBytes) {
+        throw new Error("A single plaintext export is limited to 64 MiB");
+      }
+      results.push(next);
+    }
+    const destination = await writeTraceExport(output!, results.map((entry) => entry.trace), {
+      force: hasFlag("--force"),
+      format,
+    });
+    console.log(`${process.platform === "win32" ? "Plaintext trace exported" : "Plaintext trace exported with owner-only permissions"} to ${destination}`);
+    return;
+  }
+  } finally {
+    client.close();
+  }
 };
 
 const projectResolved = async () => {
@@ -404,15 +667,30 @@ try {
   else if (command === "reset") await reset();
   else if (command === "project") await withResolvedSecrets("__project");
   else if (command === "run") await withResolvedSecrets("__run");
+  else if (command === "status" || command === "urls" || command === "instructions") {
+    await withResolvedSecrets("__service", args);
+  }
+  else if (command === "traces") await withResolvedSecrets("__traces");
+  else if (command === "explore") await withResolvedSecrets("__explore");
   else if (command === "secrets") await encryptSecrets();
   else if (command === "start") await start();
+  else if (command === "stop") await withResolvedSecrets("__stop");
   else if (command === "__start") await startResolved();
+  else if (command === "__stop") await stopResolved();
   else if (command === "__project") await projectResolved();
   else if (command === "__run") await runResolved();
+  else if (command === "__service") await serviceResolved();
+  else if (command === "__traces") await tracesResolved();
+  else if (command === "__explore") await exploreResolved();
+  else if (command === "__opentui-smoke") {
+    const explorer = await import("./explorer");
+    await explorer.smokeExplorerRenderer();
+    console.log("OpenTUI explorer renderer initialized");
+  }
   else if (command === "--version" || command === "-v") console.log(packageJson.version);
   else if (!command || command === "--help" || command === "-h") {
     help();
-    console.log("Project capture:\n  traicer project link|status|unlink [--scope-id <uuid>]\n  traicer run [--directory <path>] -- claude|codex|opencode [args]");
+    console.log("Owner trace access:\n  traicer traces list [--provider <name>] [--client <name>] [--state <state>] [--since <time>] [--limit <count>] [--offset <count>] [--json]\n  traicer traces show <trace-id|object-key|ciphertext-hash> [--json] [--stdout]\n  traicer traces export <selector...> --output <path> [--format json|jsonl|markdown] [--force]\n\nProject capture:\n  traicer project link|status|unlink [--scope-id <uuid>]\n  traicer run [--directory <path>] -- claude|codex|opencode [args]");
   }
   else throw new Error(`Unknown command: ${command}`);
 } catch (error) {
