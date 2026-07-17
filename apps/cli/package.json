@@ -1,6 +1,6 @@
 {
   "name": "@traice-market/traicer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Seller-operated CLI for capturing, protecting, and delivering AI coding traces",
   "license": "UNLICENSED",
   "type": "module",

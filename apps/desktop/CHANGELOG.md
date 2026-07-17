@@ -4,6 +4,13 @@
 
 
 
+
+## 0.2.4
+<sub>2026-07-17</sub>
+
+- [`8213bd0`](https://github.com/smashah/traicer/commit/8213bd081a6beee607a2d1955a6bc7d38ebbe09a)  *(patch)*
+  Retry Cloudflare storage deployment while a newly bootstrapped Alchemy state store finishes propagating, preventing transient first-run 500 responses from aborting `traicer init`.
+
 ## 0.2.3
 <sub>2026-07-17</sub>
 
