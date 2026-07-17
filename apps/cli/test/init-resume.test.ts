@@ -42,7 +42,7 @@ test("rerunning init resumes a failed managed storage deployment", async () => {
   const fakeBin = join(directory, "fake-bin");
   const commandLog = join(directory, "pnpm-commands.log");
   await mkdir(fakeBin);
-  await writeFile(join(fakeBin, "pnpm"), `#!${process.execPath}\nimport { appendFile } from "node:fs/promises";\nawait appendFile(${JSON.stringify(commandLog)}, process.argv.slice(2).join(" ") + "\\n");\n`, {
+  await writeFile(join(fakeBin, "pnpm"), `#!${process.execPath}\nimport { appendFile, readFile } from "node:fs/promises";\nconst command = process.argv.slice(2).join(" ");\nawait appendFile(${JSON.stringify(commandLog)}, command + "\\n");\nif (command === "alchemy deploy") {\n  const attempts = (await readFile(${JSON.stringify(commandLog)}, "utf8")).split("\\n").filter((line) => line === command).length;\n  if (attempts === 1) process.exit(1);\n}\n`, {
     mode: 0o755,
   });
 
@@ -80,6 +80,7 @@ test("rerunning init resumes a failed managed storage deployment", async () => {
     .toContain("  - 'alchemy@2.0.0-beta.62'");
   expect((await readFile(commandLog, "utf8")).trim().split("\n")).toEqual([
     "install",
+    "alchemy deploy",
     "alchemy deploy",
   ]);
 });

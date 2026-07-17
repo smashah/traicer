@@ -122,8 +122,18 @@ const deployInfrastructure = async (
         ),
       }
     : undefined;
-  if (await run(["pnpm", "alchemy", "deploy"], infrastructureDirectory, alchemyEnvironment) !== 0) {
-    process.exit(1);
+
+  const retryDelays = config.storage.provider === "cloudflare-r2" ? [2_000, 5_000] : [];
+  for (let attempt = 0; ; attempt += 1) {
+    if (await run(["pnpm", "alchemy", "deploy"], infrastructureDirectory, alchemyEnvironment) === 0) {
+      return;
+    }
+    const retryDelay = retryDelays[attempt];
+    if (retryDelay === undefined) process.exit(1);
+    console.log(
+      `Alchemy deployment failed; Cloudflare initialization can be eventually consistent. Retrying in ${retryDelay / 1_000} seconds (${attempt + 2}/${retryDelays.length + 1})...`
+    );
+    await Bun.sleep(retryDelay);
   }
 };
 
