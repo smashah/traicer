@@ -28,8 +28,8 @@
 
     <text x="0" y="142" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="61" font-weight="780" letter-spacing="-2.2">Capture the session.</text>
     <text x="0" y="205" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="61" font-weight="780" letter-spacing="-2.2">Keep the raw trace yours.</text>
-    <text x="0" y="253" fill="#A7B3CF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="23">Prepare selected AI coding conversations for potential sale—</text>
-    <text x="0" y="284" fill="#A7B3CF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="23">protected locally, encrypted into storage you control.</text>
+    <text x="0" y="247" fill="#A7B3CF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="23">Prepare selected AI coding conversations for potential sale—</text>
+    <text x="0" y="278" fill="#A7B3CF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="23">protected locally, encrypted into storage you control.</text>
   </g>
 
   <g id="trace" aria-hidden="true" transform="translate(803 64)">
