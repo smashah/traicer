@@ -45,9 +45,9 @@ bunx @traice-market/traicer start --detach
 bunx @traice-market/traicer status
 ```
 
-`status` confirms the daemon and storage boundary. From the repository you want to capture, run `traicer project link` once and then use `traicer run -- claude`, `traicer run -- codex`, or `traicer run -- opencode` to launch a client through a temporary scoped route. Use `traicer urls --reveal` only when you need to configure a client manually; it prints a capability-bearing URL.
+`status` confirms that the daemon is running and the storage checks passed. From the repository you want to capture, run `traicer project link` once and then use `traicer run -- claude`, `traicer run -- codex`, or `traicer run -- opencode` to launch a client through a temporary scoped route. Use `traicer urls --reveal` only when you need to configure a client manually; it prints a capability-bearing URL.
 
-## Confirm the boundary
+## Confirm what stays where
 
 A valid first capture should produce ciphertext in the seller bucket, a safe local trace summary, and a signed content-free marketplace manifest. It should not place a raw prompt, response, provider key, bucket credential, private object key, or presigned URL in marketplace traffic, diagnostics, or logs.
 

@@ -53,7 +53,7 @@ describe("daemon discovery", () => {
     )).rejects.toThrow("stale");
   });
 
-  test("removes an unreachable stale descriptor but preserves a live authenticated boundary", async () => {
+  test("removes an unreachable stale descriptor but preserves a live authenticated daemon", async () => {
     const unreachable = await mkdtemp(join(tmpdir(), "traicer-daemon-locator-"));
     const descriptor = {
       controlPort: 41001,

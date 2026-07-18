@@ -1,6 +1,6 @@
 # Traicer documentation
 
-Traicer is the local seller-side boundary for capturing, protecting, storing, and delivering eligible AI coding traces. Start with the user guides if you are installing Traicer; use the architecture and maintainer references when you are reviewing or changing the implementation.
+Traicer is the local seller-side service for capturing, protecting, storing, and delivering eligible AI coding traces. Start with the user guides if you are installing Traicer; use the architecture and maintainer references when you are reviewing or changing the implementation.
 
 ## Use Traicer
 
@@ -11,12 +11,12 @@ Traicer is the local seller-side boundary for capturing, protecting, storing, an
 5. [Storage](STORAGE.md) — prepare Cloudflare R2, AWS S3, or another S3-compatible service.
 6. [Troubleshooting](TROUBLESHOOTING.md) — diagnose setup, storage, routing, and capture failures.
 
-## Understand the security boundary
+## Understand the security design
 
 - [Threat model](THREAT_MODEL.md) defines the assets, assumptions, controls, and excluded threats.
 - [Telemetry contract](TELEMETRY.md) defines what may and may not leave the seller device.
-- [Architecture](ARCHITECTURE.md) explains the Tauri shell, Bun daemon, storage, marketplace, and delivery boundaries.
-- [Process-boundary ADR](adr/0001-process-boundary.md) records why the native shell supervises a Bun sidecar.
+- [Architecture](ARCHITECTURE.md) explains the Tauri shell, Bun daemon, storage, marketplace, and delivery flow.
+- [Sidecar process ADR](adr/0001-tauri-bun-sidecar.md) records why the native shell supervises a Bun sidecar.
 
 ## Maintain and release Traicer
 

@@ -24,7 +24,7 @@
       <path d="M29 42V47" stroke="#22D3EE" stroke-width="3" stroke-linecap="round"/>
     </g>
     <text x="88" y="27" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="27" font-weight="750">Traicer</text>
-    <text x="88" y="54" fill="#67E8F9" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="650" letter-spacing="1.5">LOCAL AI TRACE BOUNDARY</text>
+    <text x="88" y="54" fill="#67E8F9" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="650" letter-spacing="1.5">AI TRACES YOU CONTROL</text>
 
     <text x="0" y="142" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="61" font-weight="780" letter-spacing="-2.2">Capture the session.</text>
     <text x="0" y="205" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="61" font-weight="780" letter-spacing="-2.2">Keep the raw trace yours.</text>
@@ -37,6 +37,6 @@
     <path d="M0 96H42C64 96 66 42 94 42C124 42 121 156 154 156H216C246 156 246 96 278 96H328" fill="none" stroke="url(#brand)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="154" cy="156" r="18" fill="#071630" stroke="#22D3EE" stroke-width="5"/>
     <path d="M154 150V162" stroke="#22D3EE" stroke-width="5" stroke-linecap="round"/>
-    <text x="164" y="226" text-anchor="middle" fill="#94A3B8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" letter-spacing="1.6">ROUTE · REDACT · ENCRYPT · OWN</text>
+    <text x="164" y="226" text-anchor="middle" fill="#94A3B8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" letter-spacing="0.8">ROUTE · REDACT · ENCRYPT · OWN · SELL</text>
   </g>
 </svg>

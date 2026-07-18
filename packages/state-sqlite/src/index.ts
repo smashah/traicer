@@ -69,15 +69,15 @@ export const openOperationalState = (path: string) => {
   migrateOperationalState(db);
 
   const trimEvents = (): void => {
-    const boundary = db
+    const retentionCutoff = db
       .select({ sequence: safeEvents.sequence })
       .from(safeEvents)
       .orderBy(desc(safeEvents.sequence))
       .limit(1)
       .offset(499)
       .get();
-    if (boundary) {
-      db.delete(safeEvents).where(lt(safeEvents.sequence, boundary.sequence)).run();
+    if (retentionCutoff) {
+      db.delete(safeEvents).where(lt(safeEvents.sequence, retentionCutoff.sequence)).run();
     }
   };
 

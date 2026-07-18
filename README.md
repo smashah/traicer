@@ -1,7 +1,7 @@
 # Traicer
 
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Traicer routes selected AI coding calls through a local privacy boundary, then stores the protected trace in infrastructure controlled by the developer">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Traicer redacts and encrypts selected AI coding calls locally, then stores the protected trace in infrastructure controlled by the developer">
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ TRACE ID                              STATE             PROVIDER    CLIENT      
 
 ## What stays where
 
-| Boundary | Data kept there |
+| Location | Data kept there |
 | --- | --- |
 | **Your machine** | Provider traffic you routed through Traicer; secret stripping, redaction, canonicalisation, encryption, signing keys, and the local inventory database |
 | **Your S3-compatible bucket** | AES-256-GCM encrypted trace objects and temporary encrypted delivery objects |
@@ -156,7 +156,7 @@ bunx @traice-market/traicer traces cache status
 bunx @traice-market/traicer traces cache clear
 ```
 
-Before returning plaintext, Traicer verifies the ciphertext hash, decrypts locally, verifies the canonical hash, and validates the trace schema. Inspected plaintext is gzip-compressed under the configuration directory, capped at 512 MiB by default, and removed after seven days. Terminal output, confirmed clipboard copies, the desktop/TUI detail pane, and exported files remain plaintext boundaries.
+Before returning plaintext, Traicer verifies the ciphertext hash, decrypts locally, verifies the canonical hash, and validates the trace schema. Inspected plaintext is gzip-compressed under the configuration directory, capped at 512 MiB by default, and removed after seven days. Terminal output, confirmed clipboard copies, the desktop/TUI detail pane, and exported files contain sensitive plaintext.
 
 ## Capture and compatibility
 
@@ -182,7 +182,7 @@ As of 18 July 2026, the repository documents this acceptance evidence:
 | Windows desktop | EXE/MSI installers are published; not production-signed |
 | Debian/Ubuntu desktop | DEB package is published; clean-machine coverage remains a release gate |
 
-The version-one threat model assumes one local desktop user. Malware running with that user's privileges and a compromised operating system are outside the protection boundary. Security claims remain provisional until the corresponding packet-capture, clean-machine, crash-recovery, and external-review gates pass.
+The version-one threat model assumes one local desktop user. Traicer cannot protect traces from malware running with that user's privileges or from a compromised operating system. Security claims remain provisional until the corresponding packet-capture, clean-machine, crash-recovery, and external-review gates pass.
 
 ## Documentation and support
 
@@ -191,7 +191,7 @@ The version-one threat model assumes one local desktop user. Malware running wit
 - [Desktop app](docs/DESKTOP.md) — installation, local CA trust, updates, and capture controls.
 - [Client configuration](docs/CLIENT_CONFIGURATION.md) — fixed gateway and explicit-proxy setup.
 - [Storage](docs/STORAGE.md) — required permissions and storage-backend setup.
-- [Architecture](docs/ARCHITECTURE.md), [threat model](docs/THREAT_MODEL.md), and [telemetry contract](docs/TELEMETRY.md) — the trust boundary in detail.
+- [Architecture](docs/ARCHITECTURE.md), [threat model](docs/THREAT_MODEL.md), and [telemetry contract](docs/TELEMETRY.md) — the security design in detail.
 - [Troubleshooting](docs/TROUBLESHOOTING.md) — startup, routing, storage, and capture failures.
 
 Open reproducible, content-free bugs in [GitHub Issues](https://github.com/smashah/traicer/issues). Report vulnerabilities through [GitHub's private security advisory flow](https://github.com/smashah/traicer/security/advisories/new). Never include raw traces, prompts, source code, credentials, private keys, storage URLs, capability-bearing gateway URLs, or unredacted diagnostics in an issue.

@@ -9,7 +9,7 @@ The first release assumes one local desktop user and treats browser origins,
 LAN peers, arbitrary client input, provider responses, object-store responses,
 marketplace responses, configuration files, and diagnostics requests as
 untrusted. Local malware with the user's full privileges and a compromised OS
-are outside the version-one protection boundary.
+are not covered by the version-one security guarantees.
 
 Required controls include loopback-only listeners, random scoped capabilities,
 constant-time token comparison, fixed upstreams, exact method/path allowlists,

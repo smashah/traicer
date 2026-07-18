@@ -61,6 +61,6 @@ Deleting a trace removes seller-storage ciphertext, submits a signed tombstone, 
 
 Configuration and secrets live in the operating-system credential vault. Operational state, encrypted-spool metadata, manifest outbox state, and safe trace lifecycle data live in the daemon's local SQLite database.
 
-Decrypted inspection data uses the same reader and lifecycle as the CLI cache, gzip-compressed, capped at 512 MiB by default, and removed after seven days. It is created only after **View** or **Export** selects a trace; the app never pre-downloads the inventory. Export opens the native save dialog before any download or decryption begins, and cancellation leaves no plaintext file behind. The detail pane and selected export destination are plaintext boundaries and may contain sensitive seller data.
+Decrypted inspection data uses the same reader and lifecycle as the CLI cache, gzip-compressed, capped at 512 MiB by default, and removed after seven days. It is created only after **View** or **Export** selects a trace; the app never pre-downloads the inventory. Export opens the native save dialog before any download or decryption begins, and cancellation leaves no plaintext file behind. The detail pane and selected export destination may contain sensitive seller data.
 
 Diagnostics contain bounded status, counters, and version identifiers. They exclude trace bodies, credentials, object locators, local paths, and raw errors. Even so, review diagnostic output before sharing it and use private security reporting for suspected vulnerabilities.

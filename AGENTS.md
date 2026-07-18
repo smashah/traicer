@@ -1,6 +1,6 @@
 # Traicer agent rules
 
-Traicer is a seller-operated sovereignty boundary. Raw trace bodies, plaintext
+Traicer is a seller-operated local capture service. Raw trace bodies, plaintext
 delivery data, reusable object-store credentials, provider keys, control tokens,
 vault keys, and private signing material must never enter logs, manifests,
 telemetry, issue fixtures, or marketplace requests.
@@ -13,7 +13,7 @@ telemetry, issue fixtures, or marketplace requests.
   fail-closed for persistence.
 - Mandatory secret stripping precedes parsing, redaction, canonicalisation,
   encryption, storage, and manifest construction.
-- Cross package boundaries through package exports and `workspace:*`; never use
+- Import across packages through package exports and `workspace:*`; never use
   relative imports that escape a package.
 - `repos/effect`, if added, is read-only reference material. Imports from
   `repos/` are forbidden.
