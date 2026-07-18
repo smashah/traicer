@@ -15,7 +15,7 @@ You need:
 
 Use the desktop app for the first setup. It stores secrets in the operating-system credential vault and shows copyable fixed-gateway and explicit-proxy URLs after startup.
 
-Use the CLI for file-based configuration, automated initialization, or Alchemy storage scaffolding. The current CLI is operator-oriented and does not yet print the complete capability-bearing gateway URL as a single supported command.
+Use the CLI for file-based configuration, automated initialization, Alchemy storage scaffolding, or command-driven service discovery.
 
 ## Desktop path
 
@@ -30,11 +30,10 @@ Use the CLI for file-based configuration, automated initialization, or Alchemy s
 
 ```sh
 bunx @traice-market/traicer init \
-  --storage cloudflare-r2 \
-  --provider anthropic
+  --storage cloudflare-r2
 ```
 
-The provider choice configures one capture adapter because Anthropic and OpenAI use different request paths and upstream routing. Your coding client keeps using its existing provider credentials.
+Initialization is AI-provider agnostic: the generated configuration includes both Anthropic and OpenAI capture adapters over the same seller-owned storage. The client launched with `traicer run`, or the API path used with a revealed gateway URL, selects the adapter at runtime; your coding client keeps using its existing provider credentials.
 
 If Wrangler is installed and authenticated, Traicer tries to list the public Cloudflare accounts returned by `wrangler whoami --json`. Choose the account ID to write into the R2 endpoint and generated Alchemy stack. If Wrangler is unavailable, enter the public account ID manually or pass it with `--account-id`. Alchemy authenticates independently when you deploy.
 
@@ -42,10 +41,11 @@ Edit `~/.config/traicer/.env.local` and fill the storage credential fields. Fill
 
 ```sh
 bunx @traice-market/traicer secrets
-bunx @traice-market/traicer start
+bunx @traice-market/traicer start --detach
+bunx @traice-market/traicer status
 ```
 
-The daemon prints one JSON ready record with its random loopback ports. See [CLI reference](CLI.md) for the generated files and current endpoint limitation.
+`status` confirms the daemon and storage boundary. From the repository you want to capture, run `traicer project link` once and then use `traicer run -- claude`, `traicer run -- codex`, or `traicer run -- opencode` to launch a client through a temporary scoped route. Use `traicer urls --reveal` only when you need to configure a client manually; it prints a capability-bearing URL.
 
 ## Confirm the boundary
 

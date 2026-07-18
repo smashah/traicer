@@ -22,7 +22,7 @@ bunx @traice-market/traicer run -- claude
 
 `init` creates files and optionally deploys storage; it never starts a proxy or background service. `--yes` accepts safe defaults and never implies `--deploy`. Use `start --detach` after secrets are ready, then `status`, `urls`, and `instructions` to discover the running service safely.
 
-Traicer generates Anthropic and OpenAI adapter routes over one storage bucket. Your coding client keeps its existing provider credentials. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI and the other harness combinations currently have unit and synthetic evidence.
+Initialization is AI-provider agnostic: Traicer generates Anthropic and OpenAI adapter routes over one storage bucket. Your coding client keeps its existing provider credentials. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI and the other harness combinations currently have unit and synthetic evidence.
 
 ## Commands
 

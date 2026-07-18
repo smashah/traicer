@@ -71,6 +71,8 @@ bunx @traice-market/traicer start --detach
 
 You need an Anthropic or OpenAI credential and a dedicated Cloudflare R2, AWS S3, or compatible S3 bucket. A Traice Market account is optional at capture time. The desktop app bundles the local service; the CLI requires Bun 1.3 or newer, and managed Cloudflare/AWS deployment shells out to `pnpm`, which must already be installed.
 
+CLI initialization is AI-provider agnostic: one storage configuration includes both Anthropic and OpenAI capture routes. The client launched with `traicer run`, or the API path used with a revealed gateway URL, selects the route for each session.
+
 ### Complete Cloudflare R2 + CLI path
 
 This path creates the bucket and reaches a verifiable first trace. Wrangler account discovery and Alchemy deployment authentication are separate: Traicer reads only public account metadata from Wrangler, while Alchemy handles its own browser-based deployment login.
@@ -188,7 +190,7 @@ The version-one threat model assumes one local desktop user. Malware running wit
 - [CLI reference](docs/CLI.md) — service commands, routing, trace access, and generated files.
 - [Desktop app](docs/DESKTOP.md) — installation, local CA trust, updates, and capture controls.
 - [Client configuration](docs/CLIENT_CONFIGURATION.md) — fixed gateway and explicit-proxy setup.
-- [Storage](docs/STORAGE.md) — required permissions and provider-specific setup.
+- [Storage](docs/STORAGE.md) — required permissions and storage-backend setup.
 - [Architecture](docs/ARCHITECTURE.md), [threat model](docs/THREAT_MODEL.md), and [telemetry contract](docs/TELEMETRY.md) — the trust boundary in detail.
 - [Troubleshooting](docs/TROUBLESHOOTING.md) — startup, routing, storage, and capture failures.
 

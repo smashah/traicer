@@ -15,7 +15,7 @@ You can also install the package with your normal npm-compatible package manager
 `init` creates configuration under `~/.config/traicer` unless `--directory` is supplied. It stops if `traicer.config.json`, `.env.schema`, or `.env.local` already exists.
 
 ```text
---storage <provider>      cloudflare-r2, aws-s3, or existing-s3
+--storage <backend>       cloudflare-r2, aws-s3, or existing-s3
 --account-id <id>        Cloudflare account ID override for cloudflare-r2
 --bucket <name>          Existing bucket name; required for existing-s3
 --endpoint <url>         HTTPS S3-compatible endpoint; required for existing-s3
@@ -28,7 +28,7 @@ You can also install the package with your normal npm-compatible package manager
 
 When interactive input is available, omitted values are prompted. With `--yes`, required values without safe defaults remain empty and validation fails rather than inventing credentials or account identifiers.
 
-The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned storage configuration. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI currently has unit and synthetic evidence.
+Initialization is AI-provider agnostic. The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned storage configuration; the client or request path selects the adapter at runtime. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI currently has unit and synthetic evidence.
 
 ## `traicer reset`
 

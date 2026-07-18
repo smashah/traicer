@@ -22,7 +22,7 @@ Traicer will not enable persistence when its synthetic secret-stripping, redacti
 
 ## The client reaches Traicer but a route returns 404
 
-The fixed gateway accepts only the current provider's supported paths plus a small forward-only set for model lookup, token counting, or embeddings. Confirm that the client is using the provider selected during Traicer setup and that it has not appended a second `/v1` to the displayed gateway URL.
+The fixed gateway accepts the configured Anthropic and OpenAI capture paths plus a small forward-only set for model lookup, token counting, or embeddings. Confirm that the client is sending the expected API path for its provider and that it has not appended a second `/v1` to the displayed gateway URL.
 
 ## Provider requests work but no trace appears
 
