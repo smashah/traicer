@@ -8,6 +8,13 @@
 
 
 
+
+## 0.3.2
+<sub>2026-07-18</sub>
+
+- [#28](https://github.com/smashah/traicer/pull/28) [`824d96b`](https://github.com/smashah/traicer/commit/824d96b2a4eb0f5e4aaf4fec7f86c0717ed995f5)  *(patch)*
+  Linked the duplicated acceptance-evidence claims in the CLI readme and user guides to the canonical compatibility table so tested client and provider combinations are documented in one place, and added a repository layout section to the documentation index.
+
 ## 0.3.1
 <sub>2026-07-17</sub>
 
