@@ -12,6 +12,8 @@
 
 Traicer is for developers who want to offer selected AI coding conversations for potential sale through [Traice Market](https://traice.market) without giving the platform a copy of their working history. You are the seller and your storage remains the source of truth. Traicer runs on your machine, captures only supported provider calls you deliberately route through it, removes known secrets, encrypts accepted traces, and writes the ciphertext to S3-compatible storage you control.
 
+**Traice Market is a work in progress, and account access is not generally available yet.** Traicer remains useful before it opens: encrypted trace objects stay in your bucket, while signed safe metadata waits in the durable local outbox. When you connect an account later and restart Traicer, it submits that pending metadata idempotently, allowing those existing traces to enter marketplace workflows without uploading their raw contents. To discuss the project or hear when access opens, [join the Traice Discord](https://discord.gg/4QJ7E4nTT).
+
 A **trace** is the redacted request body and successful response body from one supported Anthropic or OpenAI call, together with its provider, model, client, timestamp, token usage, response status, and redaction report. If the client sent system instructions, code, repository context, tool definitions, tool calls, or tool results inside that provider payload, those values can be present after redaction. Traicer does not independently crawl your repository, watch processes, or record unrelated network traffic.
 
 > [!WARNING]
@@ -57,7 +59,7 @@ Traice Market does not receive the request or response body, provider or storage
 4. **Queue safe metadata.** Traicer signs the content-free inventory record. Without a Traice Market account it stays in the durable local outbox. After you add an account credential and restart Traicer, startup reconciliation submits pending records idempotently.
 5. **Approve any commercial action.** Capture alone does not create a dataset, accept a sale, or prepare delivery. A seller-approved delivery decrypts only the selected traces on your machine, re-encrypts them for that delivery, and creates a short-lived buyer capability.
 
-Traicer prepares traces for potential sale; it does not promise that a trace will be listed, requested, accepted, or purchased. If Traice Market account enrolment is not available to you yet, local-first capture and owner inspection still work without it.
+Reconciliation makes existing local-first captures available to later marketplace workflows; it does not upload the trace body, list a dataset, approve a sale, or promise a buyer. Keep the bucket objects and local Traicer configuration, including its encrypted key material, because Traicer needs them for any later seller-approved delivery.
 
 To connect an account later, stop capture, add `TRAICER_MARKETPLACE_CREDENTIAL` to `~/.config/traicer/.env.local`, encrypt the new value, and restart. The next startup reconciles the pending safe metadata:
 
