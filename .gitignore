@@ -3,7 +3,6 @@ dist/
 coverage/
 .turbo/
 .codegraph/
-apps/video/
 .DS_Store
 *.db
 *.db-shm
