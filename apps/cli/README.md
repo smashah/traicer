@@ -22,7 +22,7 @@ bunx @traice-market/traicer run -- claude
 
 `init` creates files and optionally deploys storage; it never starts a proxy or background service. `--yes` accepts safe defaults and never implies `--deploy`. Use `start --detach` after secrets are ready, then `status`, `urls`, and `instructions` to discover the running service safely.
 
-Initialization is AI-provider agnostic: Traicer generates Anthropic and OpenAI adapter routes over one storage bucket. Your coding client keeps its existing provider credentials. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI and the other harness combinations currently have unit and synthetic evidence.
+Initialization is AI-provider agnostic: Traicer generates Anthropic and OpenAI adapter routes over one storage bucket. Your coding client keeps its existing provider credentials. See the [current acceptance evidence](https://github.com/smashah/traicer/blob/main/README.md#compatibility-and-preview-limits) for which client and provider combinations have end-to-end coverage.
 
 ## Commands
 
@@ -83,7 +83,7 @@ Do not commit `.env.local`, `.alchemy/`, or any plaintext credential. `traicer s
 
 `traicer project link` derives a keyed fingerprint from the Git `origin` and stores only that fingerprint and an opaque project scope UUID. Repository names, remotes, and local paths aren't written to Traicer state or sent to the marketplace.
 
-`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. Claude Code 2.1.212 on macOS has been manually acceptance-tested; Codex and OpenCode currently have unit and synthetic evidence. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops.
+`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. Per-harness status is listed in the [acceptance evidence](https://github.com/smashah/traicer/blob/main/README.md#compatibility-and-preview-limits). The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops.
 
 ## Owner trace access
 

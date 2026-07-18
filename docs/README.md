@@ -18,6 +18,14 @@ Traicer is the local seller-side boundary for capturing, protecting, storing, an
 - [Architecture](ARCHITECTURE.md) explains the Tauri shell, Bun daemon, storage, marketplace, and delivery boundaries.
 - [Process-boundary ADR](adr/0001-process-boundary.md) records why the native shell supervises a Bun sidecar.
 
+## Repository layout
+
+- `apps/cli` — the published `@traice-market/traicer` package: file-based initializer, secret encryption, daemon launcher, and owner trace access.
+- `apps/daemon` — the loopback capture daemon, compiled into a standalone Bun sidecar for the desktop app.
+- `apps/desktop` — the Tauri shell and React webview that supervise the sidecar and hold OS-vault secrets.
+- `packages/` — shared workspace packages: `domain`, `capture-core`, `privacy-pipeline`, `crypto`, `storage-s3`, `state-sqlite`, `trace-reader`, `marketplace-client`, `api-contract`, and `effect-runtime`.
+- `tooling/` — internal build configuration shared across the workspace.
+
 ## Maintain and release Traicer
 
 - [Release workflow](RELEASING.md) covers Bumpy, npm provenance, desktop builds, signing, and GitHub assets.
