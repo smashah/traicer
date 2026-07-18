@@ -28,7 +28,7 @@ You can also install the package with your normal npm-compatible package manager
 
 When interactive input is available, omitted values are prompted. With `--yes`, required values without safe defaults remain empty and validation fails rather than inventing credentials or account identifiers.
 
-The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned storage configuration. Claude Code 2.1.212 on macOS has been manually acceptance-tested through the Anthropic route; OpenAI currently has unit and synthetic evidence.
+The generated configuration declares Anthropic and OpenAI adapter routes over one seller-owned storage configuration. See the [current acceptance evidence](../README.md#compatibility-and-preview-limits) for which client and provider combinations have end-to-end coverage.
 
 ## `traicer reset`
 
@@ -112,7 +112,7 @@ Run `traicer project link` inside a Git repository with an `origin` remote. Trai
 
 ## `traicer run`
 
-`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`. Claude Code 2.1.212 on macOS has been manually acceptance-tested; Codex and OpenCode currently have unit and synthetic evidence. The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops. The route token is neither printed nor stored in the runtime descriptor.
+`traicer run` generates scoped launch settings for `claude`, `codex`, and `opencode`; per-harness status is listed in the [acceptance evidence](../README.md#compatibility-and-preview-limits). The CLI attempts to revoke the route when the child exits. If revocation fails, it warns; the route remains valid for up to 12 hours or until the daemon stops. The route token is neither printed nor stored in the runtime descriptor.
 
 ## Generated directory
 

@@ -36,8 +36,7 @@ The AWS SDK may express HEAD through the same `s3:GetObject` permission used for
 
 ```sh
 traicer init \
-  --storage cloudflare-r2 \
-  --provider anthropic
+  --storage cloudflare-r2
 ```
 
 Traicer tries `wrangler whoami --json` to read public account metadata from an installed, authenticated Wrangler CLI, then asks which account ID to use. Pass `--account-id <cloudflare-account-id>` to bypass discovery. The selected ID is written into the S3 endpoint and generated Alchemy stack, and it is passed as `CLOUDFLARE_ACCOUNT_ID` for an immediate deployment.
@@ -59,8 +58,7 @@ R2 uses signing region `auto` and path-style addressing.
 ```sh
 traicer init \
   --storage aws-s3 \
-  --region eu-west-2 \
-  --provider openai
+  --region eu-west-2
 ```
 
 The generated Alchemy stack declares a private, versioned bucket with AES-256 server-side encryption and public-access blocking. Traicer also encrypts every accepted trace locally before upload; bucket-side encryption is an additional storage control, not a substitute for the local envelope.

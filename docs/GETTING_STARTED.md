@@ -30,11 +30,10 @@ Use the CLI for file-based configuration, automated initialization, or Alchemy s
 
 ```sh
 bunx @traice-market/traicer init \
-  --storage cloudflare-r2 \
-  --provider anthropic
+  --storage cloudflare-r2
 ```
 
-The provider choice configures one capture adapter because Anthropic and OpenAI use different request paths and upstream routing. Your coding client keeps using its existing provider credentials.
+The generated configuration declares both the Anthropic and OpenAI adapter routes over one seller-owned storage configuration; there is no per-provider `init` flag. Your coding client keeps using its existing provider credentials.
 
 If Wrangler is installed and authenticated, Traicer tries to list the public Cloudflare accounts returned by `wrangler whoami --json`. Choose the account ID to write into the R2 endpoint and generated Alchemy stack. If Wrangler is unavailable, enter the public account ID manually or pass it with `--account-id`. Alchemy authenticates independently when you deploy.
 
@@ -45,7 +44,7 @@ bunx @traice-market/traicer secrets
 bunx @traice-market/traicer start
 ```
 
-The daemon prints one JSON ready record with its random loopback ports. See [CLI reference](CLI.md) for the generated files and current endpoint limitation.
+The daemon prints one JSON ready record with its random loopback ports and stays in the foreground. See [CLI reference](CLI.md) for the generated files. Because the CLI does not yet print the capability-bearing gateway URL — a [tracked release gate](ROADMAP.md) — route supported clients with `traicer run` from a linked repository instead.
 
 ## Confirm the boundary
 
