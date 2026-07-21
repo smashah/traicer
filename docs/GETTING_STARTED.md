@@ -21,8 +21,8 @@ Use the CLI for file-based configuration, automated initialization, Alchemy stor
 
 1. Download the package for your operating system from the [latest GitHub release](https://github.com/smashah/traicer/releases/latest). Use the Apple Silicon DMG for M-series Macs, the Intel DMG for Intel Macs, the setup EXE or MSI for Windows, and the DEB for Debian or Ubuntu.
 2. Compare the package SHA-256 digest with the matching checksum file on the release. The installers are previews and may trigger Gatekeeper or SmartScreen because production OS signing and Apple notarisation are not configured yet.
-3. Open Traicer and enter the marketplace credential, provider, S3 endpoint, bucket, prefix, signing region, and scoped storage credentials.
-4. Select **Authorise device and start**. Traicer registers the device and signed capture policy, checks the bucket with a write/head/read/delete probe, runs a synthetic privacy-pipeline dry run, and starts the loopback daemon only after those checks pass.
+3. Open Traicer and enter the provider, S3 endpoint, bucket, prefix, signing region, and scoped storage credentials. Add a marketplace credential when you want immediate marketplace reconciliation; leave it empty for local-first capture.
+4. Select **Authorise device and start** when a marketplace credential is configured. Otherwise, select **Start local-first capture**. Both paths check the bucket with a write/head/read/delete probe, run a synthetic privacy-pipeline dry run, and start the loopback daemon only after those checks pass. The authorised path also registers the device and signed capture policy; the local-first path retains signed manifests in the durable local outbox for later reconciliation.
 5. Copy the displayed gateway URL and configure the AI client using [Client configuration](CLIENT_CONFIGURATION.md).
 6. Send a successful request to a supported capture path. The **Local trace lifecycle** section should show a new safe trace summary after the request finishes.
 
@@ -45,10 +45,24 @@ bunx @traice-market/traicer start --detach
 bunx @traice-market/traicer status
 ```
 
-`status` confirms that the daemon is running and the storage checks passed. From the repository you want to capture, run `traicer project link` once and then use `traicer run -- claude`, `traicer run -- codex`, or `traicer run -- opencode` to launch a client through a temporary scoped route. Use `traicer urls --reveal` only when you need to configure a client manually; it prints a capability-bearing URL.
+`status` confirms that the daemon is running and the storage checks passed. From the repository you want to capture, link the project once and launch a supported client through a temporary scoped route:
+
+```sh
+bunx @traice-market/traicer project link
+bunx @traice-market/traicer run -- claude
+```
+
+After the client completes a successful supported request, verify the capture without revealing its contents:
+
+```sh
+bunx @traice-market/traicer traces list
+bunx @traice-market/traicer explore
+```
+
+The trace should appear in both the list and the explorer. Substitute `codex` or `opencode` for `claude` when that is the client you use. Run `traicer urls --reveal` only when you need to configure a client manually; it prints a capability-bearing URL.
 
 ## Confirm what stays where
 
-A valid first capture should produce ciphertext in the seller bucket, a safe local trace summary, and a signed content-free marketplace manifest. It should not place a raw prompt, response, provider key, bucket credential, private object key, or presigned URL in marketplace traffic, diagnostics, or logs.
+A valid first capture should produce ciphertext in the seller bucket, a safe local trace summary, and a signed content-free manifest. When a marketplace account is connected, Traicer submits that manifest for reconciliation; otherwise, it retains the manifest in the durable local outbox. Neither path should place a raw prompt, response, provider key, bucket credential, private object key, or presigned URL in marketplace traffic, diagnostics, or logs.
 
 If startup or capture fails, keep the provider workflow separate from the investigation and use [Troubleshooting](TROUBLESHOOTING.md). Never paste raw traces or credentials into a public issue.
