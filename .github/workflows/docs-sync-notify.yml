@@ -1,0 +1,45 @@
+name: docs sync notify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "apps/cli/README.md"
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: File or update the docs sync issue in traice-market
+        env:
+          GH_TOKEN: ${{ secrets.TRAICE_MARKET_TOKEN }}
+          COMMITS_JSON: ${{ toJSON(github.event.commits) }}
+          COMPARE_URL: ${{ github.event.compare }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          summary=$(printf '%s' "$COMMITS_JSON" | jq -r '.[] | "- `\(.id[0:7])` \(.message | split("\n")[0])"')
+          body=$(cat <<BODY
+          Docs-affecting commits landed on traicer \`main\` (head \`${HEAD_SHA:0:7}\`):
+
+          $summary
+
+          Compare: $COMPARE_URL
+
+          **Sync contract.** Update \`apps/website/content/docs/traicer/\` in the site's existing voice, using the canonical traicer docs at the head commit as the source of facts. Verify every CLI command and flag mentioned in the MDX against \`bunx @traice-market/traicer@latest --help\` — document nothing the released CLI does not have, and cover everything it does. Then record the sync in \`apps/website/content/docs/traicer/.sync.json\` (\`traicerCommit\`, \`traicerVersion\`, \`syncedAt\`) and close this issue from the PR.
+          BODY
+          )
+          gh label create traicer-docs-sync -R smashah/traice-market \
+            --color 1D76DB --description "Canonical traicer docs changed; site docs need a sync pass" --force
+          existing=$(gh issue list -R smashah/traice-market --label traicer-docs-sync --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R smashah/traice-market --body "$body"
+          else
+            gh issue create -R smashah/traice-market --title "Sync site docs with canonical traicer docs" \
+              --label traicer-docs-sync --body "$body"
+          fi
