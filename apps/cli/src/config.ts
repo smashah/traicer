@@ -96,7 +96,7 @@ export const createBootstrap = (config: TraicerConfig): BootstrapV2 => ({
     },
     policy: {
       capturePolicyId: "strict-default",
-      pipelineVersion: "1",
+      pipelineVersion: "otel-genai/1",
       policyVersion: "1",
       redactionProfile: "strict-default",
     },

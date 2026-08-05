@@ -19,7 +19,7 @@ const policy: CapturePolicyV1 = {
   allowedMethods: ["POST"],
   allowedPaths: ["/v1/responses"],
   capturePolicyId: "018f1f0d-91aa-7b64-bb02-7db61861b18c",
-  pipelineVersion: "pipeline/1",
+  pipelineVersion: "otel-genai/1",
   policyVersion: "policy/1",
   redactionProfile: "strict-default",
   schema: "traice.capture-policy/1",
@@ -65,7 +65,7 @@ describe("capture engine", () => {
       capturedAt: "2026-07-13T12:41:20.000Z",
       client: "codex",
       method: "POST",
-      model: "gpt-test",
+      model: "sk-qrstuvwxyzABCDEF",
       path: "/v1/responses",
       provider: "openai",
       projectScopeId: "33333333-3333-4333-8333-333333333333",
@@ -84,17 +84,28 @@ describe("capture engine", () => {
     expect(stored).toBeDefined();
     const plaintext = await decryptTraceEnvelope({ envelope: stored!, wrappingKey });
     const decoded = new TextDecoder().decode(plaintext);
+    const canonical = JSON.parse(decoded) as Record<string, unknown>;
     expect(decoded).toContain("RAW_CANARY_DO_NOT_EGRESS");
     expect(decoded).not.toContain("seller@example.com");
     expect(decoded).not.toContain("sk-abcdefghijklmnop");
+    expect(canonical).toMatchObject({
+      schema: "traice.otel-genai.trace/1",
+      span: { attributes: { "gen_ai.provider.name": "openai" } },
+      traice: { pipelineVersion: "otel-genai/1", provenance: "provider_exchange" },
+    });
     expect(submitted).toHaveLength(1);
     const egress = JSON.stringify(submitted);
     expect(egress).not.toContain("RAW_CANARY_DO_NOT_EGRESS");
     expect(egress).not.toContain("provider-secret");
     expect(egress).not.toContain("seller@example.com");
+    expect(egress).not.toContain("sk-qrstuvwxyzABCDEF");
     expect(outcome.manifest.manifest).toMatchObject({
+      canonicalTraceSchema: "traice.otel-genai.trace/1",
+      otelSchemaUrl: "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev",
+      pipelineVersion: "otel-genai/1",
       projectScopeId: "33333333-3333-4333-8333-333333333333",
-      schema: "traice.manifest/2",
+      provenance: "provider_exchange",
+      schema: "traice.manifest/3",
     });
     expect(
       await verifyBytes(

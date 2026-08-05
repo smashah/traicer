@@ -1,8 +1,17 @@
-import type {
-  CanonicalTrace,
-  CapturePolicyV1,
-  ObservedProviderExchange,
-  RedactionReport,
+import {
+  CANONICAL_TRACE_SCHEMA,
+  OTEL_GENAI_SEMCONV_COMMIT,
+  OTEL_GENAI_PIPELINE_VERSION,
+  OTEL_GENAI_SCHEMA_URL,
+  type CanonicalTrace,
+  type CapturePolicyV1,
+  type GenAiInputMessage,
+  type GenAiMessagePart,
+  type GenAiOutputMessage,
+  type GenAiSpanAttributes,
+  type GenAiToolDefinition,
+  type ObservedProviderExchange,
+  type RedactionReport,
 } from "@traice/domain";
 
 const encoder = new TextEncoder();
@@ -126,10 +135,195 @@ export const canonicalJson = (value: unknown): string => {
 
 export const canonicalBytes = (value: unknown): Uint8Array => encoder.encode(canonicalJson(value));
 
+const recordFrom = (value: unknown): Readonly<Record<string, unknown>> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : {};
+
+const stringFrom = (value: unknown): string | undefined =>
+  typeof value === "string" && value.length > 0 ? value : undefined;
+
+const finiteNumberFrom = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const integerFrom = (value: unknown): number | undefined => {
+  const number = finiteNumberFrom(value);
+  return number !== undefined && Number.isInteger(number) && number >= 0 ? number : undefined;
+};
+
+const structuredFrom = (value: unknown): unknown => {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+};
+
+const messageParts = (value: unknown): readonly GenAiMessagePart[] => {
+  if (typeof value === "string") return [{ content: value, type: "text" }];
+  if (Array.isArray(value)) return value.flatMap(messageParts);
+  const record = recordFrom(value);
+  const type = stringFrom(record.type);
+  const text = stringFrom(record.text) ?? (
+    typeof record.content === "string" && ["input_text", "output_text", "text"].includes(type ?? "")
+      ? record.content
+      : undefined
+  );
+  if (text !== undefined) return [{ content: text, type: "text" }];
+
+  const functionCall = recordFrom(record.function);
+  const functionName = stringFrom(functionCall.name) ?? stringFrom(record.name);
+  if ((type === "function_call" || type === "tool_use" || type === "function") && functionName) {
+    const id = stringFrom(record.call_id) ?? stringFrom(record.id);
+    const argumentsValue = record.arguments ?? record.input ?? functionCall.arguments;
+    if (id === undefined || argumentsValue === undefined) return [];
+    return [{
+      arguments: structuredFrom(argumentsValue),
+      id,
+      name: functionName,
+      type: "tool_call",
+    }];
+  }
+  if (type === "function_call_output" || type === "tool_result") {
+    const id = stringFrom(record.call_id) ?? stringFrom(record.tool_use_id) ?? stringFrom(record.id);
+    const responseValue = record.output ?? record.content;
+    if (id === undefined || responseValue === undefined) return [];
+    return [{
+      id,
+      response: structuredFrom(responseValue),
+      type: "tool_call_response",
+    }];
+  }
+  if (Array.isArray(record.content)) return messageParts(record.content);
+  return [];
+};
+
+const inputMessage = (
+  value: unknown,
+  fallbackRole: GenAiInputMessage["role"] = "user"
+): GenAiInputMessage | undefined => {
+  if (typeof value === "string") return { parts: messageParts(value), role: fallbackRole };
+  const record = recordFrom(value);
+  const explicitRole = stringFrom(record.role);
+  const role = explicitRole === "assistant" || explicitRole === "system" || explicitRole === "tool" || explicitRole === "user"
+    ? explicitRole
+    : fallbackRole;
+  const chatToolResultId = role === "tool" ? stringFrom(record.tool_call_id) : undefined;
+  const parts = [
+    ...(chatToolResultId === undefined ? messageParts(record.content ?? record.output ?? record.input) : [{
+      id: chatToolResultId,
+      response: structuredFrom(record.content),
+      type: "tool_call_response" as const,
+    }]),
+    ...(Array.isArray(record.tool_calls) ? record.tool_calls.flatMap(messageParts) : []),
+    ...(["function_call", "function_call_output", "tool_use", "tool_result"].includes(String(record.type))
+      ? messageParts(record)
+      : []),
+  ];
+  if (parts.length === 0) return undefined;
+  const name = stringFrom(record.name);
+  const canonicalRole = parts.some((part) => part.type === "tool_call_response") ? "tool" : role;
+  return { ...(name === undefined ? {} : { name }), parts, role: canonicalRole };
+};
+
+const inputMessages = (request: Readonly<Record<string, unknown>>): readonly GenAiInputMessage[] => {
+  const source = Array.isArray(request.messages)
+    ? request.messages
+    : Array.isArray(request.input)
+      ? request.input
+      : request.input === undefined
+        ? []
+        : [request.input];
+  return source.flatMap((value) => {
+    const message = inputMessage(value);
+    return message === undefined ? [] : [message];
+  });
+};
+
+const systemInstructions = (
+  request: Readonly<Record<string, unknown>>
+): readonly GenAiMessagePart[] => messageParts(request.instructions ?? request.system);
+
+const toolDefinitions = (
+  request: Readonly<Record<string, unknown>>
+): readonly GenAiToolDefinition[] => !Array.isArray(request.tools) ? [] : request.tools.flatMap((value) => {
+  const tool = recordFrom(value);
+  const functionTool = recordFrom(tool.function);
+  const name = stringFrom(functionTool.name) ?? stringFrom(tool.name);
+  const type = stringFrom(tool.type) ?? "function";
+  if (name === undefined) return [];
+  const description = stringFrom(functionTool.description) ?? stringFrom(tool.description);
+  const parameters = functionTool.parameters ?? tool.parameters ?? tool.input_schema;
+  return [{
+    ...(description === undefined ? {} : { description }),
+    name,
+    ...(parameters === undefined ? {} : { parameters }),
+    type,
+  }];
+});
+
+const responseRecord = (value: unknown): Readonly<Record<string, unknown>> => {
+  const record = recordFrom(value);
+  if (!Array.isArray(record.events)) return record;
+  for (const event of [...record.events].reverse()) {
+    const nested = recordFrom(recordFrom(event).response);
+    if (Object.keys(nested).length > 0) return nested;
+  }
+  return record;
+};
+
+const finishReason = (response: Readonly<Record<string, unknown>>): string => {
+  const direct = stringFrom(response.stop_reason) ?? stringFrom(response.finish_reason);
+  if (direct) return direct;
+  const status = stringFrom(response.status);
+  if (status === "completed") return "stop";
+  if (status === "incomplete") {
+    return stringFrom(recordFrom(response.incomplete_details).reason) ?? "incomplete";
+  }
+  return status ?? "unknown";
+};
+
+const outputMessages = (
+  response: Readonly<Record<string, unknown>>
+): readonly GenAiOutputMessage[] => {
+  if (Array.isArray(response.choices)) {
+    return response.choices.flatMap((choice) => {
+      const choiceRecord = recordFrom(choice);
+      const message = inputMessage(choiceRecord.message ?? choiceRecord.text, "assistant");
+      if (!message) return [];
+      return [{ ...message, finish_reason: stringFrom(choiceRecord.finish_reason) ?? finishReason(response) }];
+    });
+  }
+  const source = Array.isArray(response.output)
+    ? response.output
+    : response.content === undefined
+      ? []
+      : [{ content: response.content, role: "assistant" }];
+  const parts = source.flatMap((value) => inputMessage(value, "assistant")?.parts ?? []);
+  return parts.length === 0 ? [] : [{ finish_reason: finishReason(response), parts, role: "assistant" }];
+};
+
+const stopSequences = (value: unknown): readonly string[] | undefined => {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) return undefined;
+  return value as readonly string[];
+};
+
+const openAiApiType = (adapter: string): "chat_completions" | "responses" | undefined =>
+  adapter.startsWith("openai-responses")
+    ? "responses"
+    : adapter.startsWith("openai-chat-completions")
+      ? "chat_completions"
+      : undefined;
+
 export const redactExchange = (
   observed: ObservedProviderExchange,
   policy: CapturePolicyV1
 ): { readonly report: RedactionReport; readonly trace: CanonicalTrace } => {
+  if (policy.pipelineVersion !== OTEL_GENAI_PIPELINE_VERSION) {
+    throw new Error(`Capture policy has unsupported pipeline marker: ${policy.pipelineVersion}`);
+  }
   if (
     !policy.allowedMethods.includes(observed.method) ||
     !policy.allowedPaths.includes(observed.path) ||
@@ -142,35 +336,101 @@ export const redactExchange = (
   const replacementCounts: Record<string, number> = {};
   const request = redactUnknown(observed.requestBody, replacementCounts, new WeakSet());
   const response = redactUnknown(observed.responseBody, replacementCounts, new WeakSet());
-  const report: RedactionReport = {
-    detectorVersion: "builtin/1",
-    profile: policy.redactionProfile,
-    replacements: replacementCounts,
-  };
   const hasCaptureRun = observed.captureRunId !== undefined;
   const hasProjectScope = observed.projectScopeId !== undefined;
   if (hasCaptureRun !== hasProjectScope) {
     throw new Error("Scoped capture requires both project scope and capture run IDs");
   }
   const scoped = hasCaptureRun && hasProjectScope;
+  const requestRecord = recordFrom(request);
+  const responseValue = responseRecord(response);
+  const model = stringFrom(requestRecord.model) ?? redactString(observed.model, replacementCounts);
+  const report: RedactionReport = {
+    detectorVersion: "builtin/1",
+    profile: policy.redactionProfile,
+    replacements: replacementCounts,
+  };
+  const messages = inputMessages(requestRecord);
+  const outputs = outputMessages(responseValue);
+  const instructions = systemInstructions(requestRecord);
+  const tools = toolDefinitions(requestRecord);
+  const reasons = outputs.map((message) => message.finish_reason);
+  const responseModel = stringFrom(responseValue.model);
+  const attributes: GenAiSpanAttributes = {
+    ...(messages.length === 0 ? {} : { "gen_ai.input.messages": messages }),
+    "gen_ai.operation.name": "chat",
+    ...(outputs.length === 0 ? {} : { "gen_ai.output.messages": outputs }),
+    "gen_ai.provider.name": observed.provider,
+    ...(finiteNumberFrom(requestRecord.frequency_penalty) === undefined ? {} : {
+      "gen_ai.request.frequency_penalty": finiteNumberFrom(requestRecord.frequency_penalty)!,
+    }),
+    ...(integerFrom(requestRecord.max_tokens ?? requestRecord.max_completion_tokens) === undefined ? {} : {
+      "gen_ai.request.max_tokens": integerFrom(requestRecord.max_tokens ?? requestRecord.max_completion_tokens)!,
+    }),
+    "gen_ai.request.model": model,
+    ...(finiteNumberFrom(requestRecord.presence_penalty) === undefined ? {} : {
+      "gen_ai.request.presence_penalty": finiteNumberFrom(requestRecord.presence_penalty)!,
+    }),
+    ...(integerFrom(requestRecord.seed) === undefined ? {} : { "gen_ai.request.seed": integerFrom(requestRecord.seed)! }),
+    ...(stopSequences(requestRecord.stop) === undefined ? {} : {
+      "gen_ai.request.stop_sequences": stopSequences(requestRecord.stop)!,
+    }),
+    ...(typeof requestRecord.stream === "boolean" ? { "gen_ai.request.stream": requestRecord.stream } : {}),
+    ...(finiteNumberFrom(requestRecord.temperature) === undefined ? {} : {
+      "gen_ai.request.temperature": finiteNumberFrom(requestRecord.temperature)!,
+    }),
+    ...(finiteNumberFrom(requestRecord.top_p) === undefined ? {} : {
+      "gen_ai.request.top_p": finiteNumberFrom(requestRecord.top_p)!,
+    }),
+    ...(reasons.length === 0 ? {} : { "gen_ai.response.finish_reasons": reasons }),
+    ...(stringFrom(responseValue.id) === undefined ? {} : { "gen_ai.response.id": stringFrom(responseValue.id)! }),
+    ...(responseModel === undefined ? {} : { "gen_ai.response.model": responseModel }),
+    ...(stringFrom(responseValue.status) === undefined ? {} : {
+      "gen_ai.response.status": stringFrom(responseValue.status)!,
+    }),
+    ...(instructions.length === 0 ? {} : { "gen_ai.system_instructions": instructions }),
+    ...(tools.length === 0 ? {} : { "gen_ai.tool.definitions": tools }),
+    ...(observed.usage.cacheCreationInputTokens === undefined ? {} : {
+      "gen_ai.usage.cache_creation.input_tokens": observed.usage.cacheCreationInputTokens,
+    }),
+    ...(observed.usage.cacheReadInputTokens === undefined ? {} : {
+      "gen_ai.usage.cache_read.input_tokens": observed.usage.cacheReadInputTokens,
+    }),
+    "gen_ai.usage.input_tokens": observed.usage.inputTokens,
+    "gen_ai.usage.output_tokens": observed.usage.outputTokens,
+    ...(observed.usage.reasoningOutputTokens === undefined ? {} : {
+      "gen_ai.usage.reasoning.output_tokens": observed.usage.reasoningOutputTokens,
+    }),
+    ...(openAiApiType(observed.adapter) === undefined ? {} : {
+      "openai.api.type": openAiApiType(observed.adapter)!,
+    }),
+  };
   return {
     report,
     trace: {
-      adapter: observed.adapter,
-      ...(scoped ? {
-        captureRunId: observed.captureRunId!,
-        projectScopeId: observed.projectScopeId!,
-        schema: "traice.trace/2" as const,
-      } : { schema: "traice.trace/1" as const }),
-      capturedAt: observed.capturedAt,
-      client: observed.client,
-      model: observed.model,
-      provider: observed.provider,
-      redaction: report,
-      request,
-      response: { body: response, status: observed.responseStatus },
-      traceId: observed.traceId,
-      usage: observed.usage,
+      schema: CANONICAL_TRACE_SCHEMA,
+      schemaUrl: OTEL_GENAI_SCHEMA_URL,
+      semconvCommit: OTEL_GENAI_SEMCONV_COMMIT,
+      span: {
+        attributes,
+        kind: "CLIENT",
+        name: `chat ${model}`,
+      },
+      traice: {
+        adapter: observed.adapter,
+        ...(scoped ? {
+          captureRunId: observed.captureRunId!,
+          projectScopeId: observed.projectScopeId!,
+        } : {}),
+        capturedAt: observed.capturedAt,
+        client: observed.client,
+        pipelineVersion: OTEL_GENAI_PIPELINE_VERSION,
+        provenance: "provider_exchange",
+        providerRequest: request,
+        providerResponse: { body: response, statusCode: observed.responseStatus },
+        redaction: report,
+        traceId: observed.traceId,
+      },
     },
   };
 };

@@ -65,6 +65,9 @@ const recordFromObject = (value: unknown): Readonly<Record<string, unknown>> =>
 const numberFrom = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0;
 
+const optionalNumberFrom = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined;
+
 const usageFrom = (value: unknown, depth = 0): Readonly<Record<string, unknown>> => {
   if (depth > 4) return {};
   const record = recordFromObject(value);
@@ -75,10 +78,12 @@ const usageFrom = (value: unknown, depth = 0): Readonly<Record<string, unknown>>
   const responseUsage = recordFromObject(recordFromObject(record.response).usage);
   if (Object.keys(responseUsage).length > 0) return responseUsage;
   if (Array.isArray(record.events)) {
-    for (const event of [...record.events].reverse()) {
+    const combined: Record<string, unknown> = {};
+    for (const event of record.events) {
       const found = usageFrom(event, depth + 1);
-      if (Object.keys(found).length > 0) return found;
+      Object.assign(combined, found);
     }
+    if (Object.keys(combined).length > 0) return combined;
   }
   return {};
 };
@@ -178,6 +183,15 @@ const createProviderGateway = (
         (async () => {
           const responsePayload = parseBody(await responseCopy.text());
           const usage = usageFrom(responsePayload);
+          const completionDetails = recordFromObject(usage.completion_tokens_details);
+          const promptDetails = recordFromObject(usage.prompt_tokens_details);
+          const cacheCreationInputTokens = optionalNumberFrom(usage.cache_creation_input_tokens);
+          const cacheReadInputTokens = optionalNumberFrom(
+            usage.cache_read_input_tokens ?? promptDetails.cached_tokens
+          );
+          const reasoningOutputTokens = optionalNumberFrom(
+            usage.reasoning_output_tokens ?? completionDetails.reasoning_tokens
+          );
           await dependencies.capture({
             adapter: config.adapterForPath(providerPath),
             capturedAt: new Date().toISOString(),
@@ -196,8 +210,11 @@ const createProviderGateway = (
             responseStatus: upstreamResponse.status,
             traceId: crypto.randomUUID(),
             usage: {
+              ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
+              ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
               inputTokens: numberFrom(usage.input_tokens ?? usage.prompt_tokens),
               outputTokens: numberFrom(usage.output_tokens ?? usage.completion_tokens),
+              ...(reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens }),
             },
           });
         })().catch(() => undefined)

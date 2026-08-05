@@ -53,28 +53,39 @@ const record = (value: unknown): Record<string, unknown> =>
 
 const conversation = (trace: unknown): string => {
   const value = record(trace);
-  const response = record(value.response);
+  const span = record(value.span);
+  const attributes = record(span.attributes);
+  const usage = Object.fromEntries([
+    ["cacheCreationInputTokens", attributes["gen_ai.usage.cache_creation.input_tokens"]],
+    ["cacheReadInputTokens", attributes["gen_ai.usage.cache_read.input_tokens"]],
+    ["inputTokens", attributes["gen_ai.usage.input_tokens"]],
+    ["outputTokens", attributes["gen_ai.usage.output_tokens"]],
+    ["reasoningOutputTokens", attributes["gen_ai.usage.reasoning.output_tokens"]],
+  ].filter((entry): entry is [string, unknown] => entry[1] !== undefined));
   return [
     "REQUEST",
-    JSON.stringify(value.request, null, 2),
+    JSON.stringify(attributes["gen_ai.input.messages"] ?? [], null, 2),
     "",
     "RESPONSE",
-    JSON.stringify(response.body, null, 2),
+    JSON.stringify(attributes["gen_ai.output.messages"] ?? [], null, 2),
     "",
     "USAGE",
-    JSON.stringify(value.usage, null, 2),
+    JSON.stringify(usage, null, 2),
   ].join("\n");
 };
 
 const metadata = (trace: unknown): string => {
   const value = record(trace);
+  const span = record(value.span);
+  const attributes = record(span.attributes);
+  const traice = record(value.traice);
   return [
     `Schema: ${String(value.schema ?? "unknown")}`,
-    `Trace: ${String(value.traceId ?? "unknown")}`,
-    `Provider: ${String(value.provider ?? "unknown")}`,
-    `Model: ${String(value.model ?? "unknown")}`,
-    `Client: ${String(value.client ?? "unknown")}`,
-    `Captured: ${String(value.capturedAt ?? "unknown")}`,
+    `Trace: ${String(traice.traceId ?? "unknown")}`,
+    `Provider: ${String(attributes["gen_ai.provider.name"] ?? "unknown")}`,
+    `Model: ${String(attributes["gen_ai.response.model"] ?? attributes["gen_ai.request.model"] ?? "unknown")}`,
+    `Client: ${String(traice.client ?? "unknown")}`,
+    `Captured: ${String(traice.capturedAt ?? "unknown")}`,
   ].join("\n");
 };
 

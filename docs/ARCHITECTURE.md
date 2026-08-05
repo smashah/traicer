@@ -12,7 +12,7 @@ The compiled Bun sidecar owns three separately authorised loopback surfaces:
 coding client -> loopback gateway or explicit proxy -> fixed provider upstream
                        |
                        v
- signed policy -> redaction -> canonical trace -> local AES-GCM
+ signed policy -> redaction -> OTel GenAI canonical trace -> local AES-GCM
                        |                              |
                        |                              v
                        |                       seller-owned S3

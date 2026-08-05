@@ -1,3 +1,11 @@
+import { Schema } from "effect";
+
+export const CANONICAL_TRACE_SCHEMA = "traice.otel-genai.trace/1" as const;
+export const MANIFEST_SCHEMA = "traice.manifest/3" as const;
+export const OTEL_GENAI_SEMCONV_COMMIT = "b694ec35855d8eccfacd5b09e4b72a808b363038" as const;
+export const OTEL_GENAI_SCHEMA_URL = "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev" as const;
+export const OTEL_GENAI_PIPELINE_VERSION = "otel-genai/1" as const;
+
 export type CaptureStatus = "healthy" | "paused" | "degraded" | "error";
 
 export type CaptureProvider = "anthropic" | "openai";
@@ -44,7 +52,7 @@ export interface CapturePolicyV1 {
   readonly schema: "traice.capture-policy/1";
   readonly capturePolicyId: string;
   readonly policyVersion: string;
-  readonly pipelineVersion: string;
+  readonly pipelineVersion: typeof OTEL_GENAI_PIPELINE_VERSION;
   readonly redactionProfile: string;
   readonly allowedMethods: readonly ["POST"];
   readonly allowedPaths: readonly string[];
@@ -67,8 +75,11 @@ export interface ObservedProviderExchange {
   readonly responseStatus: number;
   readonly traceId: string;
   readonly usage: {
+    readonly cacheCreationInputTokens?: number;
+    readonly cacheReadInputTokens?: number;
     readonly inputTokens: number;
     readonly outputTokens: number;
+    readonly reasoningOutputTokens?: number;
   };
 }
 
@@ -79,67 +90,165 @@ export interface RedactionReport {
 }
 
 const NonNegativeInteger = Schema.Number.pipe(Schema.int(), Schema.nonNegative());
+const GenAiRoleSchema = Schema.Literal("assistant", "system", "tool", "user");
+const GenAiMessagePartSchema = Schema.Union(
+  Schema.Struct({ content: Schema.String, type: Schema.Literal("text") }),
+  Schema.Struct({
+    arguments: Schema.Unknown,
+    id: Schema.String.pipe(Schema.minLength(1)),
+    name: Schema.String.pipe(Schema.minLength(1)),
+    type: Schema.Literal("tool_call"),
+  }),
+  Schema.Struct({
+    id: Schema.String.pipe(Schema.minLength(1)),
+    response: Schema.Unknown,
+    type: Schema.Literal("tool_call_response"),
+  })
+);
+const GenAiInputMessageSchema = Schema.Struct({
+  name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  parts: Schema.Array(GenAiMessagePartSchema),
+  role: GenAiRoleSchema,
+});
+const GenAiOutputMessageSchema = Schema.Struct({
+  finish_reason: Schema.String.pipe(Schema.minLength(1)),
+  name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  parts: Schema.Array(GenAiMessagePartSchema),
+  role: GenAiRoleSchema,
+});
+const GenAiToolDefinitionSchema = Schema.Struct({
+  description: Schema.optional(Schema.String),
+  name: Schema.String.pipe(Schema.minLength(1)),
+  parameters: Schema.optional(Schema.Unknown),
+  type: Schema.String.pipe(Schema.minLength(1)),
+});
 
-export const CanonicalTraceV1Schema = Schema.Struct({
-  adapter: Schema.String.pipe(Schema.minLength(1)),
-  capturedAt: Schema.String.pipe(Schema.minLength(1)),
-  client: Schema.String.pipe(Schema.minLength(1)),
-  model: Schema.String.pipe(Schema.minLength(1)),
-  provider: Schema.Literal("anthropic", "openai"),
-  redaction: Schema.Struct({
-    detectorVersion: Schema.Literal("builtin/1"),
-    profile: Schema.String.pipe(Schema.minLength(1)),
-    replacements: Schema.Record({ key: Schema.String, value: NonNegativeInteger }),
+export const CanonicalTraceSchema = Schema.Struct({
+  schema: Schema.Literal(CANONICAL_TRACE_SCHEMA),
+  schemaUrl: Schema.Literal(OTEL_GENAI_SCHEMA_URL),
+  semconvCommit: Schema.Literal(OTEL_GENAI_SEMCONV_COMMIT),
+  span: Schema.Struct({
+    attributes: Schema.Struct({
+      "gen_ai.input.messages": Schema.optional(Schema.Array(GenAiInputMessageSchema)),
+      "gen_ai.operation.name": Schema.Literal("chat"),
+      "gen_ai.output.messages": Schema.optional(Schema.Array(GenAiOutputMessageSchema)),
+      "gen_ai.provider.name": Schema.Literal("anthropic", "openai"),
+      "gen_ai.request.frequency_penalty": Schema.optional(Schema.Number),
+      "gen_ai.request.max_tokens": Schema.optional(NonNegativeInteger),
+      "gen_ai.request.model": Schema.String.pipe(Schema.minLength(1)),
+      "gen_ai.request.presence_penalty": Schema.optional(Schema.Number),
+      "gen_ai.request.seed": Schema.optional(Schema.Number.pipe(Schema.int())),
+      "gen_ai.request.stop_sequences": Schema.optional(Schema.Array(Schema.String)),
+      "gen_ai.request.stream": Schema.optional(Schema.Boolean),
+      "gen_ai.request.temperature": Schema.optional(Schema.Number),
+      "gen_ai.request.top_p": Schema.optional(Schema.Number),
+      "gen_ai.response.finish_reasons": Schema.optional(Schema.Array(Schema.String)),
+      "gen_ai.response.id": Schema.optional(Schema.String),
+      "gen_ai.response.model": Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+      "gen_ai.response.status": Schema.optional(Schema.String),
+      "gen_ai.system_instructions": Schema.optional(Schema.Array(GenAiMessagePartSchema)),
+      "gen_ai.tool.definitions": Schema.optional(Schema.Array(GenAiToolDefinitionSchema)),
+      "gen_ai.usage.cache_creation.input_tokens": Schema.optional(NonNegativeInteger),
+      "gen_ai.usage.cache_read.input_tokens": Schema.optional(NonNegativeInteger),
+      "gen_ai.usage.input_tokens": NonNegativeInteger,
+      "gen_ai.usage.output_tokens": NonNegativeInteger,
+      "gen_ai.usage.reasoning.output_tokens": Schema.optional(NonNegativeInteger),
+      "openai.api.type": Schema.optional(Schema.Literal("chat_completions", "responses")),
+    }),
+    kind: Schema.Literal("CLIENT"),
+    name: Schema.String.pipe(Schema.minLength(1)),
   }),
-  request: Schema.Unknown,
-  response: Schema.Struct({
-    body: Schema.Unknown,
-    status: NonNegativeInteger,
-  }),
-  schema: Schema.Literal("traice.trace/1"),
-  traceId: Schema.UUID,
-  usage: Schema.Struct({
-    inputTokens: NonNegativeInteger,
-    outputTokens: NonNegativeInteger,
+  traice: Schema.Struct({
+    adapter: Schema.String.pipe(Schema.minLength(1)),
+    captureRunId: Schema.optional(Schema.UUID),
+    capturedAt: Schema.String.pipe(Schema.minLength(1)),
+    client: Schema.String.pipe(Schema.minLength(1)),
+    pipelineVersion: Schema.Literal(OTEL_GENAI_PIPELINE_VERSION),
+    projectScopeId: Schema.optional(Schema.UUID),
+    provenance: Schema.Literal("provider_exchange"),
+    providerRequest: Schema.Unknown,
+    providerResponse: Schema.Struct({
+      body: Schema.Unknown,
+      statusCode: NonNegativeInteger,
+    }),
+    redaction: Schema.Struct({
+      detectorVersion: Schema.Literal("builtin/1"),
+      profile: Schema.String.pipe(Schema.minLength(1)),
+      replacements: Schema.Record({ key: Schema.String, value: NonNegativeInteger }),
+    }),
+    traceId: Schema.String.pipe(Schema.minLength(1)),
   }),
 });
 
-export const CanonicalTraceV2Schema = Schema.Struct({
-  ...CanonicalTraceV1Schema.fields,
-  captureRunId: Schema.UUID,
-  projectScopeId: Schema.UUID,
-  schema: Schema.Literal("traice.trace/2"),
-});
-
-export const CanonicalTraceSchema = Schema.Union(CanonicalTraceV1Schema, CanonicalTraceV2Schema);
-
-export interface CanonicalTraceV1 {
-  readonly schema: "traice.trace/1";
-  readonly adapter: string;
-  readonly capturedAt: string;
-  readonly client: string;
-  readonly model: string;
-  readonly provider: CaptureProvider;
-  readonly redaction: RedactionReport;
-  readonly request: unknown;
-  readonly response: {
-    readonly body: unknown;
-    readonly status: number;
-  };
-  readonly traceId: string;
-  readonly usage: {
-    readonly inputTokens: number;
-    readonly outputTokens: number;
-  };
+export interface GenAiMessagePart extends Readonly<Record<string, unknown>> {
+  readonly type: "text" | "tool_call" | "tool_call_response";
 }
 
-export interface CanonicalTraceV2 extends Omit<CanonicalTraceV1, "schema"> {
-  readonly schema: "traice.trace/2";
-  readonly captureRunId: string;
-  readonly projectScopeId: string;
+export interface GenAiInputMessage extends Readonly<Record<string, unknown>> {
+  readonly parts: readonly GenAiMessagePart[];
+  readonly role: "assistant" | "system" | "tool" | "user";
 }
 
-export type CanonicalTrace = CanonicalTraceV1 | CanonicalTraceV2;
+export interface GenAiOutputMessage extends GenAiInputMessage {
+  readonly finish_reason: string;
+}
+
+export interface GenAiToolDefinition extends Readonly<Record<string, unknown>> {
+  readonly name: string;
+  readonly type: string;
+}
+
+export interface GenAiSpanAttributes {
+  readonly "gen_ai.input.messages"?: readonly GenAiInputMessage[];
+  readonly "gen_ai.operation.name": "chat";
+  readonly "gen_ai.output.messages"?: readonly GenAiOutputMessage[];
+  readonly "gen_ai.provider.name": CaptureProvider;
+  readonly "gen_ai.request.frequency_penalty"?: number;
+  readonly "gen_ai.request.max_tokens"?: number;
+  readonly "gen_ai.request.model": string;
+  readonly "gen_ai.request.presence_penalty"?: number;
+  readonly "gen_ai.request.seed"?: number;
+  readonly "gen_ai.request.stop_sequences"?: readonly string[];
+  readonly "gen_ai.request.stream"?: boolean;
+  readonly "gen_ai.request.temperature"?: number;
+  readonly "gen_ai.request.top_p"?: number;
+  readonly "gen_ai.response.finish_reasons"?: readonly string[];
+  readonly "gen_ai.response.id"?: string;
+  readonly "gen_ai.response.model"?: string;
+  readonly "gen_ai.response.status"?: string;
+  readonly "gen_ai.system_instructions"?: readonly GenAiMessagePart[];
+  readonly "gen_ai.tool.definitions"?: readonly GenAiToolDefinition[];
+  readonly "gen_ai.usage.cache_creation.input_tokens"?: number;
+  readonly "gen_ai.usage.cache_read.input_tokens"?: number;
+  readonly "gen_ai.usage.input_tokens": number;
+  readonly "gen_ai.usage.output_tokens": number;
+  readonly "gen_ai.usage.reasoning.output_tokens"?: number;
+  readonly "openai.api.type"?: "chat_completions" | "responses";
+}
+
+export interface CanonicalTrace {
+  readonly schema: typeof CANONICAL_TRACE_SCHEMA;
+  readonly schemaUrl: typeof OTEL_GENAI_SCHEMA_URL;
+  readonly semconvCommit: typeof OTEL_GENAI_SEMCONV_COMMIT;
+  readonly span: {
+    readonly attributes: GenAiSpanAttributes;
+    readonly kind: "CLIENT";
+    readonly name: string;
+  };
+  readonly traice: {
+    readonly adapter: string;
+    readonly captureRunId?: string;
+    readonly capturedAt: string;
+    readonly client: string;
+    readonly pipelineVersion: typeof OTEL_GENAI_PIPELINE_VERSION;
+    readonly projectScopeId?: string;
+    readonly provenance: "provider_exchange";
+    readonly providerRequest: unknown;
+    readonly providerResponse: { readonly body: unknown; readonly statusCode: number };
+    readonly redaction: RedactionReport;
+    readonly traceId: string;
+  };
+}
 
 export type StorageIntegrityAssurance = "provider_checksum" | "full_readback";
 
@@ -150,11 +259,12 @@ export interface SafeUploadReceipt {
   readonly storageCapabilityProfileId: string;
 }
 
-export interface SafeManifestV1 {
-  readonly schema: "traice.manifest/1";
+export interface SafeManifest {
+  readonly schema: typeof MANIFEST_SCHEMA;
   readonly adapter: string;
   readonly bucketAlias: string;
   readonly canonicalHash: string;
+  readonly canonicalTraceSchema: typeof CANONICAL_TRACE_SCHEMA;
   readonly capturePolicyId: string;
   readonly capturedAt: string;
   readonly ciphertextHash: string;
@@ -166,9 +276,13 @@ export interface SafeManifestV1 {
   readonly model: string;
   readonly objectLocatorCommitment: string;
   readonly outputTokens: number;
-  readonly pipelineVersion: string;
+  readonly otelSchemaUrl: typeof OTEL_GENAI_SCHEMA_URL;
+  readonly otelSemconvCommit: typeof OTEL_GENAI_SEMCONV_COMMIT;
+  readonly pipelineVersion: typeof OTEL_GENAI_PIPELINE_VERSION;
   readonly policyVersion: string;
   readonly provider: CaptureProvider;
+  readonly provenance: "provider_exchange";
+  readonly projectScopeId?: string;
   readonly redaction: {
     readonly detectorVersion: string;
     readonly profile: string;
@@ -182,13 +296,6 @@ export interface SafeManifestV1 {
   readonly verificationTier: "self_attested";
 }
 
-export interface SafeManifestV2 extends Omit<SafeManifestV1, "schema"> {
-  readonly schema: "traice.manifest/2";
-  readonly projectScopeId: string;
-}
-
-export type SafeManifest = SafeManifestV1 | SafeManifestV2;
-
 export interface SignedSafeManifest {
   readonly manifest: SafeManifest;
   readonly signature: string;
@@ -200,4 +307,3 @@ export interface CaptureOutcome {
   readonly manifest: SignedSafeManifest;
   readonly traceId: string;
 }
-import { Schema } from "effect";

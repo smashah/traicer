@@ -82,23 +82,43 @@ describe("offline local owner access", () => {
 
     const traceId = crypto.randomUUID();
     const trace = {
-      adapter: "openai-responses/1",
-      capturedAt: "2026-07-17T08:00:00.000Z",
-      client: "codex",
-      model: "gpt-test",
-      provider: "openai",
-      redaction: { detectorVersion: "builtin/1", profile: "strict-default", replacements: {} },
-      request: { input: "safe input" },
-      response: { body: { output: "safe output" }, status: 200 },
-      schema: "traice.trace/1",
-      traceId,
-      usage: { inputTokens: 2, outputTokens: 3 },
+      schema: "traice.otel-genai.trace/1",
+      schemaUrl: "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev",
+      semconvCommit: "b694ec35855d8eccfacd5b09e4b72a808b363038",
+      span: {
+        attributes: {
+          "gen_ai.input.messages": [{ parts: [{ content: "safe input", type: "text" }], role: "user" }],
+          "gen_ai.operation.name": "chat",
+          "gen_ai.output.messages": [{ finish_reason: "stop", parts: [{ content: "safe output", type: "text" }], role: "assistant" }],
+          "gen_ai.provider.name": "openai",
+          "gen_ai.request.model": "gpt-test",
+          "gen_ai.response.model": "gpt-test",
+          "gen_ai.usage.input_tokens": 2,
+          "gen_ai.usage.output_tokens": 3,
+        },
+        kind: "CLIENT",
+        name: "chat gpt-test",
+      },
+      traice: {
+        adapter: "openai-responses/1",
+        capturedAt: "2026-07-17T08:00:00.000Z",
+        client: "codex",
+        pipelineVersion: "otel-genai/1",
+        provenance: "provider_exchange",
+        providerRequest: { input: "safe input" },
+        providerResponse: { body: { output: "safe output" }, statusCode: 200 },
+        redaction: { detectorVersion: "builtin/1", profile: "strict-default", replacements: {} },
+        traceId,
+      },
     } as const;
     const canonicalBytes = new TextEncoder().encode(JSON.stringify(trace));
     const canonicalHash = await sha256Hex(canonicalBytes);
     const ciphertextHash = "c".repeat(64);
     const state = openOperationalState(`${directory}/traicer-state.db`);
-    state.recordObserved(traceId, trace.capturedAt, { client: trace.client, provider: trace.provider });
+    state.recordObserved(traceId, trace.traice.capturedAt, {
+      client: trace.traice.client,
+      provider: trace.span.attributes["gen_ai.provider.name"],
+    });
     state.recordEncrypted(traceId, canonicalHash, ciphertextHash);
     state.close();
     await createPlaintextTraceCache({ directory: `${directory}/cache/decrypted` })
