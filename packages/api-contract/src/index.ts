@@ -12,7 +12,7 @@ export const CaptureBootstrapV1 = Schema.Struct({
   policy: Schema.Struct({
     allowedPaths: Schema.Array(Schema.String),
     capturePolicyId: Schema.String.pipe(Schema.minLength(1)),
-    pipelineVersion: Schema.String.pipe(Schema.minLength(1)),
+    pipelineVersion: Schema.Literal("otel-genai/1"),
     policyVersion: Schema.String.pipe(Schema.minLength(1)),
     redactionProfile: Schema.String.pipe(Schema.minLength(1)),
   }),
@@ -55,7 +55,7 @@ export const CaptureBootstrapV2 = Schema.Struct({
   }),
   policy: Schema.Struct({
     capturePolicyId: Schema.String.pipe(Schema.minLength(1)),
-    pipelineVersion: Schema.String.pipe(Schema.minLength(1)),
+    pipelineVersion: Schema.Literal("otel-genai/1"),
     policyVersion: Schema.String.pipe(Schema.minLength(1)),
     redactionProfile: Schema.String.pipe(Schema.minLength(1)),
   }),

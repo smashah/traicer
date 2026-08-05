@@ -52,7 +52,7 @@ export interface CapturePolicyV1 {
   readonly schema: "traice.capture-policy/1";
   readonly capturePolicyId: string;
   readonly policyVersion: string;
-  readonly pipelineVersion: string;
+  readonly pipelineVersion: typeof OTEL_GENAI_PIPELINE_VERSION;
   readonly redactionProfile: string;
   readonly allowedMethods: readonly ["POST"];
   readonly allowedPaths: readonly string[];
@@ -90,8 +90,38 @@ export interface RedactionReport {
 }
 
 const NonNegativeInteger = Schema.Number.pipe(Schema.int(), Schema.nonNegative());
-const StructuredValue = Schema.Record({ key: Schema.String, value: Schema.Unknown });
-const StructuredValues = Schema.Array(StructuredValue);
+const GenAiRoleSchema = Schema.Literal("assistant", "system", "tool", "user");
+const GenAiMessagePartSchema = Schema.Union(
+  Schema.Struct({ content: Schema.String, type: Schema.Literal("text") }),
+  Schema.Struct({
+    arguments: Schema.Unknown,
+    id: Schema.String.pipe(Schema.minLength(1)),
+    name: Schema.String.pipe(Schema.minLength(1)),
+    type: Schema.Literal("tool_call"),
+  }),
+  Schema.Struct({
+    id: Schema.String.pipe(Schema.minLength(1)),
+    response: Schema.Unknown,
+    type: Schema.Literal("tool_call_response"),
+  })
+);
+const GenAiInputMessageSchema = Schema.Struct({
+  name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  parts: Schema.Array(GenAiMessagePartSchema),
+  role: GenAiRoleSchema,
+});
+const GenAiOutputMessageSchema = Schema.Struct({
+  finish_reason: Schema.String.pipe(Schema.minLength(1)),
+  name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  parts: Schema.Array(GenAiMessagePartSchema),
+  role: GenAiRoleSchema,
+});
+const GenAiToolDefinitionSchema = Schema.Struct({
+  description: Schema.optional(Schema.String),
+  name: Schema.String.pipe(Schema.minLength(1)),
+  parameters: Schema.optional(Schema.Unknown),
+  type: Schema.String.pipe(Schema.minLength(1)),
+});
 
 export const CanonicalTraceSchema = Schema.Struct({
   schema: Schema.Literal(CANONICAL_TRACE_SCHEMA),
@@ -99,9 +129,9 @@ export const CanonicalTraceSchema = Schema.Struct({
   semconvCommit: Schema.Literal(OTEL_GENAI_SEMCONV_COMMIT),
   span: Schema.Struct({
     attributes: Schema.Struct({
-      "gen_ai.input.messages": Schema.optional(StructuredValues),
+      "gen_ai.input.messages": Schema.optional(Schema.Array(GenAiInputMessageSchema)),
       "gen_ai.operation.name": Schema.Literal("chat"),
-      "gen_ai.output.messages": Schema.optional(StructuredValues),
+      "gen_ai.output.messages": Schema.optional(Schema.Array(GenAiOutputMessageSchema)),
       "gen_ai.provider.name": Schema.Literal("anthropic", "openai"),
       "gen_ai.request.frequency_penalty": Schema.optional(Schema.Number),
       "gen_ai.request.max_tokens": Schema.optional(NonNegativeInteger),
@@ -116,8 +146,8 @@ export const CanonicalTraceSchema = Schema.Struct({
       "gen_ai.response.id": Schema.optional(Schema.String),
       "gen_ai.response.model": Schema.optional(Schema.String.pipe(Schema.minLength(1))),
       "gen_ai.response.status": Schema.optional(Schema.String),
-      "gen_ai.system_instructions": Schema.optional(StructuredValues),
-      "gen_ai.tool.definitions": Schema.optional(StructuredValues),
+      "gen_ai.system_instructions": Schema.optional(Schema.Array(GenAiMessagePartSchema)),
+      "gen_ai.tool.definitions": Schema.optional(Schema.Array(GenAiToolDefinitionSchema)),
       "gen_ai.usage.cache_creation.input_tokens": Schema.optional(NonNegativeInteger),
       "gen_ai.usage.cache_read.input_tokens": Schema.optional(NonNegativeInteger),
       "gen_ai.usage.input_tokens": NonNegativeInteger,
@@ -133,7 +163,7 @@ export const CanonicalTraceSchema = Schema.Struct({
     captureRunId: Schema.optional(Schema.UUID),
     capturedAt: Schema.String.pipe(Schema.minLength(1)),
     client: Schema.String.pipe(Schema.minLength(1)),
-    pipelineVersion: Schema.String.pipe(Schema.minLength(1)),
+    pipelineVersion: Schema.Literal(OTEL_GENAI_PIPELINE_VERSION),
     projectScopeId: Schema.optional(Schema.UUID),
     provenance: Schema.Literal("provider_exchange"),
     providerRequest: Schema.Unknown,
@@ -151,12 +181,12 @@ export const CanonicalTraceSchema = Schema.Struct({
 });
 
 export interface GenAiMessagePart extends Readonly<Record<string, unknown>> {
-  readonly type: string;
+  readonly type: "text" | "tool_call" | "tool_call_response";
 }
 
 export interface GenAiInputMessage extends Readonly<Record<string, unknown>> {
   readonly parts: readonly GenAiMessagePart[];
-  readonly role: string;
+  readonly role: "assistant" | "system" | "tool" | "user";
 }
 
 export interface GenAiOutputMessage extends GenAiInputMessage {
@@ -210,7 +240,7 @@ export interface CanonicalTrace {
     readonly captureRunId?: string;
     readonly capturedAt: string;
     readonly client: string;
-    readonly pipelineVersion: string;
+    readonly pipelineVersion: typeof OTEL_GENAI_PIPELINE_VERSION;
     readonly projectScopeId?: string;
     readonly provenance: "provider_exchange";
     readonly providerRequest: unknown;
@@ -248,7 +278,7 @@ export interface SafeManifest {
   readonly outputTokens: number;
   readonly otelSchemaUrl: typeof OTEL_GENAI_SCHEMA_URL;
   readonly otelSemconvCommit: typeof OTEL_GENAI_SEMCONV_COMMIT;
-  readonly pipelineVersion: string;
+  readonly pipelineVersion: typeof OTEL_GENAI_PIPELINE_VERSION;
   readonly policyVersion: string;
   readonly provider: CaptureProvider;
   readonly provenance: "provider_exchange";

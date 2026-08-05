@@ -1,6 +1,7 @@
 import {
   CANONICAL_TRACE_SCHEMA,
   OTEL_GENAI_SEMCONV_COMMIT,
+  OTEL_GENAI_PIPELINE_VERSION,
   OTEL_GENAI_SCHEMA_URL,
   type CanonicalTrace,
   type CapturePolicyV1,
@@ -176,9 +177,10 @@ const messageParts = (value: unknown): readonly GenAiMessagePart[] => {
   if ((type === "function_call" || type === "tool_use" || type === "function") && functionName) {
     const id = stringFrom(record.call_id) ?? stringFrom(record.id);
     const argumentsValue = record.arguments ?? record.input ?? functionCall.arguments;
+    if (id === undefined || argumentsValue === undefined) return [];
     return [{
-      ...(argumentsValue === undefined ? {} : { arguments: structuredFrom(argumentsValue) }),
-      ...(id === undefined ? {} : { id }),
+      arguments: structuredFrom(argumentsValue),
+      id,
       name: functionName,
       type: "tool_call",
     }];
@@ -186,25 +188,34 @@ const messageParts = (value: unknown): readonly GenAiMessagePart[] => {
   if (type === "function_call_output" || type === "tool_result") {
     const id = stringFrom(record.call_id) ?? stringFrom(record.tool_use_id) ?? stringFrom(record.id);
     const responseValue = record.output ?? record.content;
-    if (responseValue === undefined) return [{ ...record, type } as GenAiMessagePart];
+    if (id === undefined || responseValue === undefined) return [];
     return [{
-      ...(id === undefined ? {} : { id }),
+      id,
       response: structuredFrom(responseValue),
       type: "tool_call_response",
     }];
   }
   if (Array.isArray(record.content)) return messageParts(record.content);
-  return type === undefined ? [] : [{ ...record, type } as GenAiMessagePart];
+  return [];
 };
 
-const inputMessage = (value: unknown, fallbackRole = "user"): GenAiInputMessage | undefined => {
+const inputMessage = (
+  value: unknown,
+  fallbackRole: GenAiInputMessage["role"] = "user"
+): GenAiInputMessage | undefined => {
   if (typeof value === "string") return { parts: messageParts(value), role: fallbackRole };
   const record = recordFrom(value);
-  const role = stringFrom(record.role) ?? (
-    record.type === "function_call_output" || record.type === "tool_result" ? "tool" : fallbackRole
-  );
+  const explicitRole = stringFrom(record.role);
+  const role = explicitRole === "assistant" || explicitRole === "system" || explicitRole === "tool" || explicitRole === "user"
+    ? explicitRole
+    : fallbackRole;
+  const chatToolResultId = role === "tool" ? stringFrom(record.tool_call_id) : undefined;
   const parts = [
-    ...messageParts(record.content ?? record.output ?? record.input),
+    ...(chatToolResultId === undefined ? messageParts(record.content ?? record.output ?? record.input) : [{
+      id: chatToolResultId,
+      response: structuredFrom(record.content),
+      type: "tool_call_response" as const,
+    }]),
     ...(Array.isArray(record.tool_calls) ? record.tool_calls.flatMap(messageParts) : []),
     ...(["function_call", "function_call_output", "tool_use", "tool_result"].includes(String(record.type))
       ? messageParts(record)
@@ -212,7 +223,8 @@ const inputMessage = (value: unknown, fallbackRole = "user"): GenAiInputMessage 
   ];
   if (parts.length === 0) return undefined;
   const name = stringFrom(record.name);
-  return { ...(name === undefined ? {} : { name }), parts, role };
+  const canonicalRole = parts.some((part) => part.type === "tool_call_response") ? "tool" : role;
+  return { ...(name === undefined ? {} : { name }), parts, role: canonicalRole };
 };
 
 const inputMessages = (request: Readonly<Record<string, unknown>>): readonly GenAiInputMessage[] => {
@@ -309,6 +321,9 @@ export const redactExchange = (
   observed: ObservedProviderExchange,
   policy: CapturePolicyV1
 ): { readonly report: RedactionReport; readonly trace: CanonicalTrace } => {
+  if (policy.pipelineVersion !== OTEL_GENAI_PIPELINE_VERSION) {
+    throw new Error(`Capture policy has unsupported pipeline marker: ${policy.pipelineVersion}`);
+  }
   if (
     !policy.allowedMethods.includes(observed.method) ||
     !policy.allowedPaths.includes(observed.path) ||
@@ -321,11 +336,6 @@ export const redactExchange = (
   const replacementCounts: Record<string, number> = {};
   const request = redactUnknown(observed.requestBody, replacementCounts, new WeakSet());
   const response = redactUnknown(observed.responseBody, replacementCounts, new WeakSet());
-  const report: RedactionReport = {
-    detectorVersion: "builtin/1",
-    profile: policy.redactionProfile,
-    replacements: replacementCounts,
-  };
   const hasCaptureRun = observed.captureRunId !== undefined;
   const hasProjectScope = observed.projectScopeId !== undefined;
   if (hasCaptureRun !== hasProjectScope) {
@@ -334,11 +344,17 @@ export const redactExchange = (
   const scoped = hasCaptureRun && hasProjectScope;
   const requestRecord = recordFrom(request);
   const responseValue = responseRecord(response);
+  const model = stringFrom(requestRecord.model) ?? redactString(observed.model, replacementCounts);
+  const report: RedactionReport = {
+    detectorVersion: "builtin/1",
+    profile: policy.redactionProfile,
+    replacements: replacementCounts,
+  };
   const messages = inputMessages(requestRecord);
   const outputs = outputMessages(responseValue);
   const instructions = systemInstructions(requestRecord);
   const tools = toolDefinitions(requestRecord);
-  const reasons = [...new Set(outputs.map((message) => message.finish_reason))];
+  const reasons = outputs.map((message) => message.finish_reason);
   const responseModel = stringFrom(responseValue.model);
   const attributes: GenAiSpanAttributes = {
     ...(messages.length === 0 ? {} : { "gen_ai.input.messages": messages }),
@@ -351,7 +367,7 @@ export const redactExchange = (
     ...(integerFrom(requestRecord.max_tokens ?? requestRecord.max_completion_tokens) === undefined ? {} : {
       "gen_ai.request.max_tokens": integerFrom(requestRecord.max_tokens ?? requestRecord.max_completion_tokens)!,
     }),
-    "gen_ai.request.model": observed.model,
+    "gen_ai.request.model": model,
     ...(finiteNumberFrom(requestRecord.presence_penalty) === undefined ? {} : {
       "gen_ai.request.presence_penalty": finiteNumberFrom(requestRecord.presence_penalty)!,
     }),
@@ -398,7 +414,7 @@ export const redactExchange = (
       span: {
         attributes,
         kind: "CLIENT",
-        name: `chat ${observed.model}`,
+        name: `chat ${model}`,
       },
       traice: {
         adapter: observed.adapter,
@@ -408,7 +424,7 @@ export const redactExchange = (
         } : {}),
         capturedAt: observed.capturedAt,
         client: observed.client,
-        pipelineVersion: policy.pipelineVersion,
+        pipelineVersion: OTEL_GENAI_PIPELINE_VERSION,
         provenance: "provider_exchange",
         providerRequest: request,
         providerResponse: { body: response, statusCode: observed.responseStatus },

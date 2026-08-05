@@ -200,7 +200,7 @@ describe("privacy pipeline", () => {
     expect(trace.span.attributes).toMatchObject({
       "gen_ai.input.messages": [{
         parts: [{ id: "tool-1", response: "sunny", type: "tool_call_response" }],
-        role: "user",
+        role: "tool",
       }],
       "gen_ai.output.messages": [{
         finish_reason: "tool_use",
@@ -216,6 +216,56 @@ describe("privacy pipeline", () => {
       "gen_ai.usage.cache_read.input_tokens": 3,
       "gen_ai.usage.reasoning.output_tokens": 1,
     });
+  });
+
+  test("preserves one finish reason per output choice, including duplicates", () => {
+    const trace = redactExchange({
+      ...observed,
+      adapter: "openai-chat-completions/1",
+      responseBody: {
+        choices: [
+          { finish_reason: "stop", message: { content: "first", role: "assistant" } },
+          { finish_reason: "stop", message: { content: "second", role: "assistant" } },
+        ],
+      },
+    }, policy).trace;
+
+    expect(trace.span.attributes["gen_ai.response.finish_reasons"]).toEqual(["stop", "stop"]);
+  });
+
+  test("maps OpenAI Chat tool results to tool-call response parts", () => {
+    const trace = redactExchange({
+      ...observed,
+      adapter: "openai-chat-completions/1",
+      requestBody: {
+        messages: [{ content: "sunny", role: "tool", tool_call_id: "call-1" }],
+        model: "gpt-test",
+      },
+    }, policy).trace;
+
+    expect(trace.span.attributes["gen_ai.input.messages"]).toEqual([{
+      parts: [{ id: "call-1", response: "sunny", type: "tool_call_response" }],
+      role: "tool",
+    }]);
+  });
+
+  test("redacts the model before it enters canonical bytes", () => {
+    const trace = redactExchange({
+      ...observed,
+      model: "sk-abcdefghijklmnop",
+      requestBody: { input: "safe" },
+    }, policy).trace;
+
+    const encoded = canonicalJson(trace);
+    expect(encoded).not.toContain("sk-abcdefghijklmnop");
+    expect(trace.span.attributes["gen_ai.request.model"]).toBe("<REDACTED:OPENAI_KEY:1>");
+  });
+
+  test("rejects a policy carrying a different canonical pipeline marker", () => {
+    expect(() => redactExchange(observed, {
+      ...policy,
+      pipelineVersion: "wrong/1",
+    } as unknown as CapturePolicyV1)).toThrow("pipeline marker");
   });
 
   test("rejects capture outside the exact method/path policy", () => {

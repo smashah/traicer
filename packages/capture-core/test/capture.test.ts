@@ -65,7 +65,7 @@ describe("capture engine", () => {
       capturedAt: "2026-07-13T12:41:20.000Z",
       client: "codex",
       method: "POST",
-      model: "gpt-test",
+      model: "sk-qrstuvwxyzABCDEF",
       path: "/v1/responses",
       provider: "openai",
       projectScopeId: "33333333-3333-4333-8333-333333333333",
@@ -98,6 +98,7 @@ describe("capture engine", () => {
     expect(egress).not.toContain("RAW_CANARY_DO_NOT_EGRESS");
     expect(egress).not.toContain("provider-secret");
     expect(egress).not.toContain("seller@example.com");
+    expect(egress).not.toContain("sk-qrstuvwxyzABCDEF");
     expect(outcome.manifest.manifest).toMatchObject({
       canonicalTraceSchema: "traice.otel-genai.trace/1",
       otelSchemaUrl: "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev",
