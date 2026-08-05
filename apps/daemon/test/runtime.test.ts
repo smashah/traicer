@@ -78,7 +78,7 @@ describe("daemon capture runtime", () => {
       },
       policy: {
         capturePolicyId: crypto.randomUUID(),
-        pipelineVersion: "pipeline/1",
+        pipelineVersion: "otel-genai/1",
         policyVersion: "policy/1",
         redactionProfile: "strict-default",
       },

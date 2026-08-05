@@ -61,7 +61,11 @@ describe("Traices Explorer", () => {
         await Bun.sleep(1);
         return {
           source: "storage",
-          trace: { schema: "traice.trace/1", traceId: "trace-1", request: { input: "owner-visible" } },
+          trace: {
+            schema: "traice.otel-genai.trace/1",
+            span: { attributes: { "gen_ai.input.messages": [{ parts: [{ content: "owner-visible", type: "text" }], role: "user" }] } },
+            traice: { traceId: "trace-1" },
+          },
         };
       },
     }} onCopy={() => { copies += 1; }} onExport={async () => { exports += 1; return "/safe/export"; }} />, { height: 24, width: 100 });
@@ -178,7 +182,11 @@ describe("Traices Explorer", () => {
       client={{ list: async () => [], read: async () => { throw new Error("unused"); } }}
       initialResult={{
         source: "storage",
-        trace: { schema: "traice.trace/1", traceId: "trace-1", request: { input: "owner-visible" } },
+        trace: {
+          schema: "traice.otel-genai.trace/1",
+          span: { attributes: { "gen_ai.input.messages": [{ parts: [{ content: "owner-visible", type: "text" }], role: "user" }] } },
+          traice: { traceId: "trace-1" },
+        },
       }}
       initialTraces={[{
         capturedAt: "2026-07-17T08:00:00.000Z",

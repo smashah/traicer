@@ -179,7 +179,7 @@ describe("Anthropic fixed-upstream gateway", () => {
       fetchUpstream: async (input, init) => {
         forwarded = new Request(input, init);
         return new Response(
-          'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":7,"output_tokens":0}}}\n\nevent: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":4}}\n\n',
+          'event: message_start\ndata: {"type":"message_start","message":{"usage":{"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"input_tokens":7,"output_tokens":0}}}\n\nevent: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":4}}\n\n',
           { headers: { "content-type": "text/event-stream" }, status: 200 }
         );
       },
@@ -208,6 +208,12 @@ describe("Anthropic fixed-upstream gateway", () => {
       adapter: "anthropic-messages/1",
       model: "claude-test",
       provider: "anthropic",
+      usage: {
+        cacheCreationInputTokens: 2,
+        cacheReadInputTokens: 3,
+        inputTokens: 7,
+        outputTokens: 4,
+      },
     });
     expect(captures[0]?.requestHeaders).not.toHaveProperty("x-api-key");
   });

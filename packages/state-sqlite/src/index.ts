@@ -188,9 +188,9 @@ export const openOperationalState = (path: string) => {
             client: signed.manifest.client,
             clientManifestId: signed.manifest.clientManifestId,
             state: "manifest_pending",
-            ...(signed.manifest.schema === "traice.manifest/2"
-              ? { projectScopeId: signed.manifest.projectScopeId }
-              : {}),
+            ...(signed.manifest.projectScopeId === undefined
+              ? {}
+              : { projectScopeId: signed.manifest.projectScopeId }),
             provider: signed.manifest.provider,
             traceId,
             updatedAt: now,

@@ -244,11 +244,11 @@ export const parseCanonicalTrace = (
   }
   let trace: CanonicalTrace;
   try {
-    trace = Schema.decodeUnknownSync(CanonicalTraceSchema)(value);
+    trace = Schema.decodeUnknownSync(CanonicalTraceSchema)(value) as CanonicalTrace;
   } catch {
     throw new Error("Decrypted trace does not match the canonical trace schema");
   }
-  if (trace.traceId !== expectedTraceId) {
+  if (trace.traice.traceId !== expectedTraceId) {
     throw new Error("Decrypted trace does not match the canonical trace schema");
   }
   return trace;

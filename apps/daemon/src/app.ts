@@ -301,7 +301,7 @@ export const createControlApp = (dependencies: ControlDependencies) => {
         manifests: dependencies.queueCounts?.() ?? { committed: 0, pending: 0 },
       },
       versions: {
-        canonicalTrace: 1,
+        canonicalTrace: "traice.otel-genai.trace/1",
         database: 1,
         detector: "builtin/1",
         envelope: 1,

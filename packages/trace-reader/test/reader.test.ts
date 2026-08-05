@@ -13,17 +13,36 @@ afterEach(async () => {
 });
 
 const canonical = (traceId: string, marker = "safe output") => ({
-  adapter: "openai-responses/1",
-  capturedAt: "2026-07-17T08:00:00.000Z",
-  client: "codex",
-  model: "gpt-test",
-  provider: "openai",
-  redaction: { detectorVersion: "builtin/1", profile: "strict-default", replacements: {} },
-  request: { input: "safe input" },
-  response: { body: { output: marker }, status: 200 },
-  schema: "traice.trace/1",
-  traceId,
-  usage: { inputTokens: 2, outputTokens: 3 },
+  schema: "traice.otel-genai.trace/1",
+  schemaUrl: "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev",
+  semconvCommit: "b694ec35855d8eccfacd5b09e4b72a808b363038",
+  span: {
+    attributes: {
+      "gen_ai.input.messages": [{ parts: [{ content: "safe input", type: "text" }], role: "user" }],
+      "gen_ai.operation.name": "chat",
+      "gen_ai.output.messages": [{ finish_reason: "stop", parts: [{ content: marker, type: "text" }], role: "assistant" }],
+      "gen_ai.provider.name": "openai",
+      "gen_ai.request.model": "gpt-test",
+      "gen_ai.response.finish_reasons": ["stop"],
+      "gen_ai.response.model": "gpt-test",
+      "gen_ai.usage.input_tokens": 2,
+      "gen_ai.usage.output_tokens": 3,
+      "openai.api.type": "responses",
+    },
+    kind: "CLIENT",
+    name: "chat gpt-test",
+  },
+  traice: {
+    adapter: "openai-responses/1",
+    capturedAt: "2026-07-17T08:00:00.000Z",
+    client: "codex",
+    pipelineVersion: "otel-genai/1",
+    provenance: "provider_exchange",
+    providerRequest: { input: "safe input" },
+    providerResponse: { body: { output: marker }, statusCode: 200 },
+    redaction: { detectorVersion: "builtin/1", profile: "strict-default", replacements: {} },
+    traceId,
+  },
 } as const);
 
 describe("owner trace reader", () => {
@@ -96,12 +115,12 @@ describe("owner trace reader", () => {
     const root = `/tmp/traicer-cache-${crypto.randomUUID()}`;
     roots.push(root);
     let now = new Date("2026-07-17T08:00:00.000Z").getTime();
-    const cache = createPlaintextTraceCache({ directory: root, maxBytes: 400, now: () => now });
+    const cache = createPlaintextTraceCache({ directory: root, maxBytes: 700, now: () => now });
     const firstHash = "a".repeat(64);
     const secondHash = "b".repeat(64);
     await cache.put(firstHash, encoder.encode(JSON.stringify(canonical(crypto.randomUUID(), crypto.randomUUID().repeat(16)))));
     await cache.put(secondHash, encoder.encode(JSON.stringify(canonical(crypto.randomUUID(), crypto.randomUUID().repeat(16)))));
-    expect((await cache.stats()).bytes).toBeLessThanOrEqual(400);
+    expect((await cache.stats()).bytes).toBeLessThanOrEqual(700);
     expect((await cache.stats()).entries).toBe(1);
 
     now += 7 * 24 * 60 * 60 * 1_000 + 1;
@@ -173,7 +192,7 @@ describe("owner trace reader", () => {
     });
     await expect(wrongKeyReader.read(traceId)).rejects.toMatchObject({ code: "decrypt_failed" });
 
-    const unsupportedBytes = encoder.encode(JSON.stringify({ ...canonical(traceId), schema: "traice.trace/99" }));
+    const unsupportedBytes = encoder.encode(JSON.stringify({ ...canonical(traceId), schema: "traice.otel-genai.trace/99" }));
     const unsupported = await encryptTraceEnvelope({ canonicalBytes: unsupportedBytes, traceId, wrappingKey });
     const unsupportedReader = createTraceReader({
       getEnvelope: async () => unsupported.bytes,

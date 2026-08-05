@@ -794,7 +794,7 @@ fn build_bootstrap() -> Result<(String, String), String> {
             "policy": {
                 "allowedPaths": config.policy_allowed_paths,
                 "capturePolicyId": config.capture_policy_id,
-                "pipelineVersion": "pipeline/1",
+                "pipelineVersion": "otel-genai/1",
                 "policyVersion": config.policy_version,
                 "redactionProfile": config.redaction_profile
             },
@@ -1583,7 +1583,7 @@ mod tests {
         let destination = root.join("trace.json");
         write_owner_export(
             &destination,
-            &serde_json::json!({ "schema": "traice.trace/1", "traceId": "trace-1" }),
+            &serde_json::json!({ "schema": "traice.otel-genai.trace/1", "traice": { "traceId": "trace-1" } }),
         )
         .expect("first export");
         assert!(

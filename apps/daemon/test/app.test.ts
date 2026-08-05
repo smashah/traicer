@@ -132,17 +132,34 @@ describe("private control API", () => {
 
   test("streams explicit owner inspection progress and plaintext only over the authenticated loopback API", async () => {
     const trace = {
-      adapter: "openai-responses/1",
-      capturedAt: "2026-07-17T08:00:00.000Z",
-      client: "codex",
-      model: "gpt-test",
-      provider: "openai",
-      redaction: { detectorVersion: "builtin/1", profile: "strict-default", replacements: {} },
-      request: { input: "owner-visible" },
-      response: { body: { output: "owner-visible" }, status: 200 },
-      schema: "traice.trace/1",
-      traceId: "trace-1",
-      usage: { inputTokens: 2, outputTokens: 3 },
+      schema: "traice.otel-genai.trace/1",
+      schemaUrl: "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev",
+      semconvCommit: "b694ec35855d8eccfacd5b09e4b72a808b363038",
+      span: {
+        attributes: {
+          "gen_ai.input.messages": [{ parts: [{ content: "owner-visible", type: "text" }], role: "user" }],
+          "gen_ai.operation.name": "chat",
+          "gen_ai.output.messages": [{ finish_reason: "stop", parts: [{ content: "owner-visible", type: "text" }], role: "assistant" }],
+          "gen_ai.provider.name": "openai",
+          "gen_ai.request.model": "gpt-test",
+          "gen_ai.response.model": "gpt-test",
+          "gen_ai.usage.input_tokens": 2,
+          "gen_ai.usage.output_tokens": 3,
+        },
+        kind: "CLIENT",
+        name: "chat gpt-test",
+      },
+      traice: {
+        adapter: "openai-responses/1",
+        capturedAt: "2026-07-17T08:00:00.000Z",
+        client: "codex",
+        pipelineVersion: "otel-genai/1",
+        provenance: "provider_exchange",
+        providerRequest: { input: "owner-visible" },
+        providerResponse: { body: { output: "owner-visible" }, statusCode: 200 },
+        redaction: { detectorVersion: "builtin/1", profile: "strict-default", replacements: {} },
+        traceId: "trace-1",
+      },
     } as const;
     const app = createControlApp({
       control: makeCaptureControl(),

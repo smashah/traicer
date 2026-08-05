@@ -185,9 +185,7 @@ export const createCaptureRuntime = (
     const tokenBand = (count: number) => count < 10_000 ? "under-10k" : count < 1_000_000 ? "10k-999k" : "1m+";
     const byScope = new Map<string, typeof manifests>();
     for (const signed of manifests) {
-      const scope = signed.manifest.schema === "traice.manifest/2"
-        ? signed.manifest.projectScopeId
-        : "legacy-unscoped";
+      const scope = signed.manifest.projectScopeId ?? "unscoped";
       byScope.set(scope, [...(byScope.get(scope) ?? []), signed]);
     }
     const snapshotPayload = {
@@ -240,7 +238,6 @@ export const createCaptureRuntime = (
       ? work.request.projectScopeId
       : undefined;
     const manifests = state.committedManifests().filter((signed) => requestedScope === undefined || (
-      signed.manifest.schema === "traice.manifest/2" &&
       signed.manifest.projectScopeId === requestedScope
     )).slice(0, work.request.requestedTraceCount);
     if (manifests.length === 0) throw new Error("No committed local manifests are eligible");

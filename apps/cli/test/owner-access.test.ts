@@ -11,6 +11,32 @@ import {
 
 const paths: string[] = [];
 
+const canonical = (traceId: string, input = "owner-visible") => ({
+  schema: "traice.otel-genai.trace/1",
+  schemaUrl: "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev",
+  semconvCommit: "b694ec35855d8eccfacd5b09e4b72a808b363038",
+  span: {
+    attributes: {
+      "gen_ai.input.messages": [{ parts: [{ content: input, type: "text" }], role: "user" }],
+      "gen_ai.operation.name": "chat",
+      "gen_ai.output.messages": [{ finish_reason: "stop", parts: [{ content: "safe output", type: "text" }], role: "assistant" }],
+      "gen_ai.provider.name": "openai",
+      "gen_ai.request.model": "gpt-test",
+      "gen_ai.response.model": "gpt-test",
+      "gen_ai.usage.input_tokens": 2,
+      "gen_ai.usage.output_tokens": 3,
+    },
+    kind: "CLIENT",
+    name: "chat gpt-test",
+  },
+  traice: {
+    capturedAt: "2026-07-17T08:00:00.000Z",
+    client: "codex",
+    providerResponse: { statusCode: 200 },
+    traceId,
+  },
+});
+
 afterEach(async () => {
   await Promise.all(paths.splice(0).map((path) => Bun.$`rm -rf ${path}`.quiet()));
 });
@@ -39,11 +65,7 @@ describe("CLI owner trace access", () => {
 
   test("parses streamed progress before returning the selected plaintext trace", async () => {
     const events: unknown[] = [];
-    const trace = {
-      schema: "traice.trace/1",
-      traceId: "trace-1",
-      request: { input: "owner-visible" },
-    };
+    const trace = canonical("trace-1");
     const client = createOwnerAccessClient({
       controlBaseUrl: "http://127.0.0.1:43100",
       controlToken: "control-capability",
@@ -64,9 +86,9 @@ describe("CLI owner trace access", () => {
     const directory = resolve(await realpath(tmpdir()), `traicer-export-${crypto.randomUUID()}`);
     const destination = `${directory}/trace.json`;
     paths.push(directory);
-    await writeTraceExport(destination, { schema: "traice.trace/1", traceId: "trace-1" });
+    await writeTraceExport(destination, canonical("trace-1"));
     expect((await stat(destination)).mode & 0o777).toBe(0o600);
-    expect(await Bun.file(destination).json()).toEqual({ schema: "traice.trace/1", traceId: "trace-1" });
+    expect(await Bun.file(destination).json()).toEqual(canonical("trace-1"));
     await expect(writeTraceExport(destination, { replaced: true })).rejects.toThrow("already exists");
     expect(await Bun.file(destination).text()).not.toContain("replaced");
     await writeTraceExport(destination, { replaced: true }, { force: true });
@@ -79,8 +101,8 @@ describe("CLI owner trace access", () => {
     const directory = resolve(await realpath(tmpdir()), `traicer-export-${crypto.randomUUID()}`);
     paths.push(directory);
     const traces = [
-      { schema: "traice.trace/1", traceId: "trace-1", request: {}, response: {}, usage: {} },
-      { schema: "traice.trace/1", traceId: "trace-2", request: {}, response: {}, usage: {} },
+      canonical("trace-1"),
+      canonical("trace-2"),
     ];
     const jsonl = `${directory}/traces.jsonl`;
     await writeTraceExport(jsonl, traces, { format: "jsonl" });
@@ -91,10 +113,11 @@ describe("CLI owner trace access", () => {
     expect(await Bun.file(markdown).text()).toContain("# Traice 2");
 
     const fenced = `${directory}/fenced.md`;
-    await writeTraceExport(fenced, {
-      ...traces[0],
-      request: { input: "```\n<script>alert(1)</script>" },
-    }, { format: "markdown" });
+    await writeTraceExport(
+      fenced,
+      canonical("trace-1", "```\n<script>alert(1)</script>"),
+      { format: "markdown" }
+    );
     const fencedText = await Bun.file(fenced).text();
     expect(fencedText).toContain("````text");
     expect(fencedText).toContain("<script>alert(1)</script>");

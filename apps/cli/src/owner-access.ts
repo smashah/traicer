@@ -140,7 +140,11 @@ const toolMaterial = (value: unknown, result: unknown[] = []): readonly unknown[
     for (const entry of value) toolMaterial(entry, result);
   } else if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    if (record.type === "tool_use" || record.type === "tool_result" || Array.isArray(record.tool_calls)) {
+    if (
+      record.type === "tool_call"
+      || record.type === "tool_call_response"
+      || Array.isArray(record.tool_calls)
+    ) {
       result.push(value);
     } else {
       for (const nested of Object.values(record)) toolMaterial(nested, result);
@@ -152,26 +156,44 @@ const toolMaterial = (value: unknown, result: unknown[] = []): readonly unknown[
 export const formatCanonicalTrace = (trace: unknown): string => {
   if (!trace || typeof trace !== "object") throw new Error("Canonical trace rendering failed");
   const value = trace as Record<string, unknown>;
-  const response = value.response && typeof value.response === "object"
-    ? value.response as Record<string, unknown>
+  const span = value.span && typeof value.span === "object"
+    ? value.span as Record<string, unknown>
     : {};
-  const tools = toolMaterial([value.request, response.body]);
+  const attributes = span.attributes && typeof span.attributes === "object"
+    ? span.attributes as Record<string, unknown>
+    : {};
+  const traice = value.traice && typeof value.traice === "object"
+    ? value.traice as Record<string, unknown>
+    : {};
+  const providerResponse = traice.providerResponse && typeof traice.providerResponse === "object"
+    ? traice.providerResponse as Record<string, unknown>
+    : {};
+  const input = attributes["gen_ai.input.messages"] ?? [];
+  const output = attributes["gen_ai.output.messages"] ?? [];
+  const tools = toolMaterial([input, output]);
+  const usage = {
+    cacheCreationInputTokens: attributes["gen_ai.usage.cache_creation.input_tokens"],
+    cacheReadInputTokens: attributes["gen_ai.usage.cache_read.input_tokens"],
+    inputTokens: attributes["gen_ai.usage.input_tokens"],
+    outputTokens: attributes["gen_ai.usage.output_tokens"],
+    reasoningOutputTokens: attributes["gen_ai.usage.reasoning.output_tokens"],
+  };
   return [
-    `Trace ${String(value.traceId ?? "unknown")}`,
-    `Provider: ${String(value.provider ?? "unknown")} · Model: ${String(value.model ?? "unknown")} · Client: ${String(value.client ?? "unknown")}`,
-    `Captured: ${String(value.capturedAt ?? "unknown")} · Response status: ${String(response.status ?? "unknown")}`,
+    `Trace ${String(traice.traceId ?? "unknown")}`,
+    `Provider: ${String(attributes["gen_ai.provider.name"] ?? "unknown")} · Model: ${String(attributes["gen_ai.response.model"] ?? attributes["gen_ai.request.model"] ?? "unknown")} · Client: ${String(traice.client ?? "unknown")}`,
+    `Captured: ${String(traice.capturedAt ?? "unknown")} · Response status: ${String(providerResponse.statusCode ?? "unknown")}`,
     "",
     "REQUEST",
-    pretty(value.request),
+    pretty(input),
     "",
     "RESPONSE",
-    pretty(response.body),
+    pretty(output),
     "",
     "TOOL CALLS / RESULTS",
     tools.length ? pretty(tools) : "None",
     "",
     "USAGE",
-    pretty(value.usage),
+    pretty(Object.fromEntries(Object.entries(usage).filter(([, item]) => item !== undefined))),
   ].join("\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, (character) =>
     `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
   );

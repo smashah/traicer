@@ -3,13 +3,17 @@ import {
   sha256Hex,
   signBytes,
 } from "@traice/crypto";
-import type {
-  CaptureOutcome,
-  CapturePolicyV1,
-  ObservedProviderExchange,
-  SafeManifest,
-  SafeUploadReceipt,
-  SignedSafeManifest,
+import {
+  CANONICAL_TRACE_SCHEMA,
+  MANIFEST_SCHEMA,
+  OTEL_GENAI_SEMCONV_COMMIT,
+  OTEL_GENAI_SCHEMA_URL,
+  type CaptureOutcome,
+  type CapturePolicyV1,
+  type ObservedProviderExchange,
+  type SafeManifest,
+  type SafeUploadReceipt,
+  type SignedSafeManifest,
 } from "@traice/domain";
 import {
   canonicalBytes,
@@ -78,12 +82,12 @@ const coarseHour = (value: string): string => {
   return date.toISOString();
 };
 
-const countToolCalls = (body: unknown): number => {
-  if (!body || typeof body !== "object") {
-    return 0;
-  }
-  const encoded = JSON.stringify(body);
-  return (encoded.match(/"(?:tool_calls|tool_use)"/g) ?? []).length;
+const countToolCalls = (value: unknown): number => {
+  if (Array.isArray(value)) return value.reduce((total, item) => total + countToolCalls(item), 0);
+  if (!value || typeof value !== "object") return 0;
+  const record = value as Readonly<Record<string, unknown>>;
+  return (record.type === "tool_call" ? 1 : 0)
+    + Object.values(record).reduce<number>((total, item) => total + countToolCalls(item), 0);
 };
 
 export const createCaptureEngine = (
@@ -129,6 +133,7 @@ export const createCaptureEngine = (
       adapter: observed.adapter,
       bucketAlias: config.bucketAlias,
       canonicalHash: encrypted.canonicalHash,
+      canonicalTraceSchema: CANONICAL_TRACE_SCHEMA,
       capturePolicyId: config.policy.capturePolicyId,
       capturedAt: coarseHour(observed.capturedAt),
       ciphertextHash: encrypted.ciphertextHash,
@@ -140,17 +145,21 @@ export const createCaptureEngine = (
       model: observed.model,
       objectLocatorCommitment: receipt.objectCommitment,
       outputTokens: observed.usage.outputTokens,
+      otelSchemaUrl: OTEL_GENAI_SCHEMA_URL,
+      otelSemconvCommit: OTEL_GENAI_SEMCONV_COMMIT,
       pipelineVersion: config.policy.pipelineVersion,
       policyVersion: config.policy.policyVersion,
       provider: observed.provider,
+      provenance: trace.traice.provenance,
       redaction: {
         detectorVersion: report.detectorVersion,
         profile: report.profile,
         replacementCounts: report.replacements,
       },
-      ...(trace.schema === "traice.trace/2"
-        ? { projectScopeId: trace.projectScopeId, schema: "traice.manifest/2" as const }
-        : { schema: "traice.manifest/1" as const }),
+      ...(trace.traice.projectScopeId === undefined
+        ? {}
+        : { projectScopeId: trace.traice.projectScopeId }),
+      schema: MANIFEST_SCHEMA,
       signerKeyId: config.signerKeyId,
       storageCapabilityProfileId: receipt.storageCapabilityProfileId,
       storageIntegrityAssurance: receipt.integrityAssurance,

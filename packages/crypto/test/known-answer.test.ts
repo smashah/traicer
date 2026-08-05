@@ -46,7 +46,7 @@ describe("crypto known-answer tests", () => {
 
   test("signs exact safe-manifest bytes with Ed25519", async () => {
     const keys = await generateDeviceSigningKeyPair();
-    const bytes = new TextEncoder().encode('{"schema":"traice.manifest/1"}');
+    const bytes = new TextEncoder().encode('{"schema":"traice.manifest/3"}');
     const signature = await signBytes(keys.privateKey, bytes);
 
     expect(await verifyBytes(keys.publicKey, signature, bytes)).toBe(true);
@@ -54,7 +54,7 @@ describe("crypto known-answer tests", () => {
       await verifyBytes(
         keys.publicKey,
         signature,
-        new TextEncoder().encode('{"schema":"traice.manifest/2"}')
+        new TextEncoder().encode('{"schema":"traice.manifest/4"}')
       )
     ).toBe(false);
   });
