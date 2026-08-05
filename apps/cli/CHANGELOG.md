@@ -9,6 +9,12 @@
 
 
 
+
+## 0.4.0
+<sub>2026-08-05</sub>
+
+- [#33](https://github.com/smashah/traicer/pull/33) [`f155a43`](https://github.com/smashah/traicer/commit/f155a432010db73b771183e6157cfee8dcb35486)  *(minor)* - Adopt the pinned OpenTelemetry GenAI canonical trace and manifest formats.
+
 ## 0.3.2
 <sub>2026-07-18</sub>
 
