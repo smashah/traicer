@@ -200,6 +200,70 @@ describe("Traices Explorer", () => {
     expect(setup.captureCharFrame()).toContain("storage");
   });
 
+  test("renders an ordered, paged thread with tools, reasoning usage, and redaction findings", async () => {
+    setup = await testRender(<ExplorerApp
+      client={{ list: async () => [], read: async () => { throw new Error("unused"); } }}
+      initialResult={{
+        source: "cache",
+        trace: {
+          span: { attributes: {
+            "gen_ai.input.messages": [
+              { parts: [{ content: "first request <REDACTED:OPENAI_KEY:1>", type: "text" }], role: "user" },
+              { parts: [{ arguments: { path: "src/index.ts" }, id: "call-1", name: "read_file\u001b[2J", type: "tool_call" }], role: "assistant" },
+              { parts: [{ id: "call-1", response: "file contents", type: "tool_call_response" }], role: "tool" },
+            ],
+            "gen_ai.output.messages": [{
+              finish_reason: "stop",
+              parts: [{ content: "final answer", type: "text" }],
+              role: "assistant",
+            }],
+            "gen_ai.system_instructions": [{ content: "never reveal credentials", type: "text" }],
+            "gen_ai.usage.input_tokens": 12,
+            "gen_ai.usage.output_tokens": 8,
+            "gen_ai.usage.reasoning.output_tokens": 3,
+          } },
+          traice: {
+            redaction: {
+              detectorVersion: "builtin/1",
+              profile: "strict-default",
+              replacements: { OPENAI_KEY: 1, SECRET_FIELD: 2 },
+            },
+            traceId: "thread-trace",
+          },
+        },
+      }}
+      initialTraces={[{ capturedAt: "2026-07-17T08:00:00.000Z", state: "committed", traceId: "thread-trace", updatedAt: "2026-07-17T08:00:01.000Z" }]}
+    />, { height: 40, width: 120 });
+    await setup.renderOnce();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("SYSTEM INSTRUCTIONS");
+    expect(frame).toContain("first request");
+    expect(frame).toContain("REDACTION OVERLAY");
+    expect(frame).toContain("OPENAI_KEY: 1");
+    expect(frame).toContain("REDACTION OPENAI_KEY #1");
+    expect(frame).toContain("Page 1 of 2");
+    await press("]");
+    const secondPage = setup.captureCharFrame();
+    expect(secondPage).toContain("CALL read_file");
+    expect(secondPage).toContain("\\u001b[2J");
+    expect(secondPage).not.toContain("\u001b");
+    expect(secondPage).toContain("RESULT read_file");
+    expect(secondPage).toContain("FINAL OUTPUT");
+    expect(secondPage).toContain("MODEL REASONING");
+    expect(secondPage).toContain("finish: stop");
+    expect(secondPage.indexOf("CALL read_file")).toBeLessThan(secondPage.indexOf("RESULT read_file"));
+  });
+
+  test("renders an explicit empty-thread state instead of silently omitting malformed message lists", async () => {
+    setup = await testRender(<ExplorerApp
+      client={{ list: async () => [], read: async () => { throw new Error("unused"); } }}
+      initialResult={{ source: "cache", trace: { span: { attributes: {} }, traice: { traceId: "empty-thread" } } }}
+      initialTraces={[{ capturedAt: "2026-07-17T08:00:00.000Z", state: "committed", traceId: "empty-thread", updatedAt: "2026-07-17T08:00:01.000Z" }]}
+    />, { height: 24, width: 100 });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("No renderable messages were recorded for this trace");
+  });
+
   test("shows the keyboard contract and a clear empty state", async () => {
     setup = await testRender(<ExplorerApp initialTraces={[]} client={{
       list: async () => [],

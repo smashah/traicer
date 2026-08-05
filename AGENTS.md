@@ -19,3 +19,5 @@ telemetry, issue fixtures, or marketplace requests.
   `repos/` are forbidden.
 - Do not claim a milestone, adapter, platform, storage provider, signature, or
   installer works without the corresponding acceptance evidence.
+- CodeGraph initialization and indexing are pre-authorized whenever they are
+  needed for repository work. Do not ask for confirmation before running them.

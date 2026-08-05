@@ -51,28 +51,125 @@ const colors = {
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? value as Record<string, unknown> : {};
 
-const conversation = (trace: unknown): string => {
+const pageSize = 3;
+const detailValueLimit = 1_200;
+
+interface DetailPage {
+  readonly pageCount: number;
+  readonly text: string;
+}
+
+const terminalText = (value: string): string => value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, (character) =>
+  `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
+);
+
+const label = (value: unknown): string => terminalText(String(value));
+
+const display = (value: unknown): string => {
+  const rendered = typeof value === "string" ? value : JSON.stringify(value);
+  const bounded = rendered.length > detailValueLimit
+    ? `${rendered.slice(0, detailValueLimit)}… (truncated; use the JSON tab for the complete value)`
+    : rendered;
+  return terminalText(bounded);
+};
+
+const parts = (value: unknown): readonly Record<string, unknown>[] => {
+  const message = record(value);
+  return Array.isArray(message.parts) ? message.parts.map(record) : [];
+};
+
+const redactionLocations = (text: string): readonly string[] => Array.from(
+  text.matchAll(/<REDACTED:([A-Z_]+):(\d+)>/g),
+  ([, category, occurrence]) => `↳ REDACTION ${category} #${occurrence}`
+);
+
+const withRedactionLocations = (text: string): readonly string[] => [text, ...redactionLocations(text)];
+
+const partLines = (part: Record<string, unknown>, toolNames: ReadonlyMap<string, string>): readonly string[] => {
+  if (part.type === "tool_call") {
+    const id = label(typeof part.id === "string" ? part.id : "unknown");
+    const name = label(typeof part.name === "string" ? part.name : "unknown");
+    const argumentsText = `arguments: ${display(part.arguments)}`;
+    return [`CALL ${name} (${id})`, ...withRedactionLocations(argumentsText)];
+  }
+  if (part.type === "tool_call_response") {
+    const rawId = typeof part.id === "string" ? part.id : "unknown";
+    const id = label(rawId);
+    const result = `result: ${display(part.response)}`;
+    return [`RESULT ${label(toolNames.get(rawId) ?? rawId)} (${id})`, ...withRedactionLocations(result)];
+  }
+  const content = display(part.content ?? part.text ?? part);
+  return withRedactionLocations(content);
+};
+
+const page = (items: readonly string[], index: number): DetailPage => {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const current = Math.min(Math.max(index, 0), pageCount - 1);
+  const start = current * pageSize;
+  const visible = items.slice(start, start + pageSize);
+  return {
+    pageCount,
+    text: [`Page ${current + 1} of ${pageCount} · items ${items.length === 0 ? 0 : start + 1}–${start + visible.length} of ${items.length}`, "", ...visible].join("\n\n"),
+  };
+};
+
+const conversation = (trace: unknown, index: number): DetailPage => {
   const value = record(trace);
   const span = record(value.span);
   const attributes = record(span.attributes);
-  const usage = Object.fromEntries([
-    ["cacheCreationInputTokens", attributes["gen_ai.usage.cache_creation.input_tokens"]],
-    ["cacheReadInputTokens", attributes["gen_ai.usage.cache_read.input_tokens"]],
-    ["inputTokens", attributes["gen_ai.usage.input_tokens"]],
-    ["outputTokens", attributes["gen_ai.usage.output_tokens"]],
-    ["reasoningOutputTokens", attributes["gen_ai.usage.reasoning.output_tokens"]],
-  ].filter((entry): entry is [string, unknown] => entry[1] !== undefined));
-  return [
-    "REQUEST",
-    JSON.stringify(attributes["gen_ai.input.messages"] ?? [], null, 2),
-    "",
-    "RESPONSE",
-    JSON.stringify(attributes["gen_ai.output.messages"] ?? [], null, 2),
-    "",
-    "USAGE",
-    JSON.stringify(usage, null, 2),
-  ].join("\n");
+  const traice = record(value.traice);
+  const input = Array.isArray(attributes["gen_ai.input.messages"]) ? attributes["gen_ai.input.messages"] : [];
+  const output = Array.isArray(attributes["gen_ai.output.messages"]) ? attributes["gen_ai.output.messages"] : [];
+  const instructions = Array.isArray(attributes["gen_ai.system_instructions"])
+    ? attributes["gen_ai.system_instructions"].map(record)
+    : [];
+  const toolNames = new Map<string, string>();
+  for (const message of [...input, ...output]) {
+    for (const part of parts(message)) {
+      if (part.type === "tool_call" && typeof part.id === "string" && typeof part.name === "string") {
+        toolNames.set(part.id, part.name);
+      }
+    }
+  }
+  const entries: string[] = [];
+  if (instructions.length > 0) {
+    entries.push(["SYSTEM INSTRUCTIONS", ...instructions.flatMap((part) => partLines(part, toolNames))].join("\n"));
+  }
+  const replacements = record(traice.redaction).replacements;
+  if (replacements && typeof replacements === "object") {
+    const findings = Object.entries(record(replacements)).filter(([, count]) => typeof count === "number" && count > 0);
+    entries.push(findings.length > 0
+      ? ["REDACTION OVERLAY", ...findings.map(([category, count]) => `${label(category)}: ${label(count)} replacement${count === 1 ? "" : "s"}`)].join("\n")
+      : "REDACTION OVERLAY\nNo replacements recorded.");
+  }
+  for (const [messageIndex, message] of input.entries()) {
+    const item = record(message);
+    entries.push([`TURN ${messageIndex + 1} · ${label(item.role ?? "unknown").toUpperCase()}`, ...parts(message).flatMap((part) => partLines(part, toolNames))].join("\n"));
+  }
+  for (const [messageIndex, message] of output.entries()) {
+    const item = record(message);
+    const reasoning = attributes["gen_ai.usage.reasoning.output_tokens"];
+    const usage = [
+      `input: ${String(attributes["gen_ai.usage.input_tokens"] ?? "unknown")}`,
+      `output: ${String(attributes["gen_ai.usage.output_tokens"] ?? "unknown")}`,
+      ...(reasoning === undefined ? [] : [`reasoning: ${String(reasoning)}`]),
+    ];
+    entries.push([
+      `TURN ${input.length + messageIndex + 1} · ${label(item.role ?? "assistant").toUpperCase()}`,
+      ...(reasoning === undefined ? [] : [`MODEL REASONING · ${label(reasoning)} tokens reported separately from final output`]),
+      `FINAL OUTPUT · finish: ${label(item.finish_reason ?? "unknown")}`,
+      ...parts(message).flatMap((part) => partLines(part, toolNames)),
+      `USAGE · ${usage.join(" · ")}`,
+    ].join("\n"));
+  }
+  if (entries.length === 0) entries.push("No renderable messages were recorded for this trace.");
+  return page(entries, index);
 };
+
+const rawJson = (trace: unknown, index: number): DetailPage => page(
+  (JSON.stringify(trace, null, 2) ?? "undefined").split("\n").map(terminalText),
+  index
+);
 
 const metadata = (trace: unknown): string => {
   const value = record(trace);
@@ -116,6 +213,7 @@ export function ExplorerApp({
   const filteringRef = useRef<boolean>(false);
   const [filter, setFilter] = useState("");
   const [tab, setTab] = useState<DetailTab>("conversation");
+  const [detailPage, setDetailPage] = useState(0);
   const [detailOpen, setDetailOpen] = useState(Boolean(initialResult));
 
   const visibleTraces = useMemo(() => {
@@ -131,9 +229,11 @@ export function ExplorerApp({
   }, [filter, traces]);
   const selected = visibleTraces[selectedIndex];
   const json = useMemo(() => result ? JSON.stringify(result.trace, null, 2) : "", [result]);
-  const detail = result
-    ? tab === "json" ? json : tab === "metadata" ? metadata(result.trace) : conversation(result.trace)
-    : "";
+  const detail = useMemo(() => {
+    if (!result) return undefined;
+    if (tab === "metadata") return { pageCount: 1, text: metadata(result.trace) };
+    return tab === "json" ? rawJson(result.trace, detailPage) : conversation(result.trace, detailPage);
+  }, [detailPage, result, tab]);
 
   const clearPlaintext = () => {
     setResult(undefined);
@@ -143,6 +243,7 @@ export function ExplorerApp({
     setDetailOpen(false);
     setMessage(undefined);
     setTab("conversation");
+    setDetailPage(0);
   };
 
   const reload = async () => {
@@ -270,6 +371,11 @@ export function ExplorerApp({
       setConfirmation("reveal");
     } else if (pressed("tab") && result) {
       setTab((current) => current === "conversation" ? "json" : current === "json" ? "metadata" : "conversation");
+      setDetailPage(0);
+    } else if ((pressed("right") || pressed("]")) && detail && detail.pageCount > 1) {
+      setDetailPage((current) => Math.min(detail.pageCount - 1, current + 1));
+    } else if ((pressed("left") || pressed("[")) && detail && detail.pageCount > 1) {
+      setDetailPage((current) => Math.max(0, current - 1));
     } else if (pressed("r")) {
       void reload();
     } else if (pressed("e") && result && onExport) {
@@ -339,14 +445,14 @@ export function ExplorerApp({
           {message ? <text fg={colors.dim}>{message}</text> : null}
           {!result && !progress && !confirmation && selected ? <text fg={colors.dim}>Press Enter, review the warning, then confirm to decrypt this trace.</text> : null}
           {result && !confirmation ? <scrollbox flexGrow={1} focused={false} marginTop={1}>
-            <text fg={colors.text}>{detail}</text>
+            <text fg={colors.text}>{detail?.text}</text>
           </scrollbox> : null}
         </box> : null}
       </box>
       <box border borderColor={colors.border} paddingX={2}>
         <text fg={colors.dim}>{narrow
           ? "↑/↓ move · Enter reveal · / filter · Tab tabs · e export · c copy · q quit"
-          : "↑/k ↓/j move · Enter reveal · / filter · Tab tabs · e export · c copy · r refresh · Esc back · q quit"}</text>
+          : "↑/k ↓/j move · Enter reveal · / filter · Tab tabs · [/] page · e export · c copy · r refresh · Esc back · q quit"}</text>
       </box>
     </box>
   );
