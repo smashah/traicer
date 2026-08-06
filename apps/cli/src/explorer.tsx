@@ -78,28 +78,21 @@ const parts = (value: unknown): readonly Record<string, unknown>[] => {
   return Array.isArray(message.parts) ? message.parts.map(record) : [];
 };
 
-const redactionLocations = (text: string): readonly string[] => Array.from(
-  text.matchAll(/<REDACTED:([A-Z_]+):(\d+)>/g),
-  ([, category, occurrence]) => `↳ REDACTION ${category} #${occurrence}`
-);
-
-const withRedactionLocations = (text: string): readonly string[] => [text, ...redactionLocations(text)];
-
+// Redaction markers are left inline exactly as the pipeline wrote them. The
+// conversation view is for judging whether a session is worth listing, so it does
+// not annotate every replacement — replacement counts live on the metadata tab.
 const partLines = (part: Record<string, unknown>, toolNames: ReadonlyMap<string, string>): readonly string[] => {
   if (part.type === "tool_call") {
     const id = label(typeof part.id === "string" ? part.id : "unknown");
     const name = label(typeof part.name === "string" ? part.name : "unknown");
-    const argumentsText = `arguments: ${display(part.arguments)}`;
-    return [`CALL ${name} (${id})`, ...withRedactionLocations(argumentsText)];
+    return [`CALL ${name} (${id})`, `arguments: ${display(part.arguments)}`];
   }
   if (part.type === "tool_call_response") {
     const rawId = typeof part.id === "string" ? part.id : "unknown";
     const id = label(rawId);
-    const result = `result: ${display(part.response)}`;
-    return [`RESULT ${label(toolNames.get(rawId) ?? rawId)} (${id})`, ...withRedactionLocations(result)];
+    return [`RESULT ${label(toolNames.get(rawId) ?? rawId)} (${id})`, `result: ${display(part.response)}`];
   }
-  const content = display(part.content ?? part.text ?? part);
-  return withRedactionLocations(content);
+  return [display(part.content ?? part.text ?? part)];
 };
 
 const page = (items: readonly string[], index: number): DetailPage => {
@@ -117,9 +110,8 @@ const conversation = (trace: unknown, index: number): DetailPage => {
   const value = record(trace);
   const span = record(value.span);
   const attributes = record(span.attributes);
-  const traice = record(value.traice);
-  const input = Array.isArray(attributes["gen_ai.input.messages"]) ? attributes["gen_ai.input.messages"] : [];
-  const output = Array.isArray(attributes["gen_ai.output.messages"]) ? attributes["gen_ai.output.messages"] : [];
+  const input = messages(attributes, "gen_ai.input.messages");
+  const output = messages(attributes, "gen_ai.output.messages");
   const instructions = Array.isArray(attributes["gen_ai.system_instructions"])
     ? attributes["gen_ai.system_instructions"].map(record)
     : [];
@@ -134,13 +126,6 @@ const conversation = (trace: unknown, index: number): DetailPage => {
   const entries: string[] = [];
   if (instructions.length > 0) {
     entries.push(["SYSTEM INSTRUCTIONS", ...instructions.flatMap((part) => partLines(part, toolNames))].join("\n"));
-  }
-  const replacements = record(traice.redaction).replacements;
-  if (replacements && typeof replacements === "object") {
-    const findings = Object.entries(record(replacements)).filter(([, count]) => typeof count === "number" && count > 0);
-    entries.push(findings.length > 0
-      ? ["REDACTION OVERLAY", ...findings.map(([category, count]) => `${label(category)}: ${label(count)} replacement${count === 1 ? "" : "s"}`)].join("\n")
-      : "REDACTION OVERLAY\nNo replacements recorded.");
   }
   for (const [messageIndex, message] of input.entries()) {
     const item = record(message);
@@ -171,11 +156,27 @@ const rawJson = (trace: unknown, index: number): DetailPage => page(
   index
 );
 
+const messages = (attributes: Record<string, unknown>, key: string): readonly unknown[] =>
+  Array.isArray(attributes[key]) ? attributes[key] as readonly unknown[] : [];
+
+// Sell-side signals: a seller judging what is worth listing wants session shape —
+// how many turns, how much tool use — not just provider and model.
+const toolCalls = (input: readonly unknown[], output: readonly unknown[]): number =>
+  [...input, ...output].reduce<number>(
+    (total, message) => total + parts(message).filter((part) => part.type === "tool_call").length,
+    0
+  );
+
 const metadata = (trace: unknown): string => {
   const value = record(trace);
   const span = record(value.span);
   const attributes = record(span.attributes);
   const traice = record(value.traice);
+  const input = messages(attributes, "gen_ai.input.messages");
+  const output = messages(attributes, "gen_ai.output.messages");
+  const replacements = record(record(traice.redaction).replacements);
+  const findings = Object.entries(replacements)
+    .filter(([, count]) => typeof count === "number" && count > 0);
   return [
     `Schema: ${String(value.schema ?? "unknown")}`,
     `Trace: ${String(traice.traceId ?? "unknown")}`,
@@ -183,6 +184,12 @@ const metadata = (trace: unknown): string => {
     `Model: ${String(attributes["gen_ai.response.model"] ?? attributes["gen_ai.request.model"] ?? "unknown")}`,
     `Client: ${String(traice.client ?? "unknown")}`,
     `Captured: ${String(traice.capturedAt ?? "unknown")}`,
+    `Turns: ${String(input.length + output.length)}`,
+    `Tool calls: ${String(toolCalls(input, output))}`,
+    `Tokens: in ${String(attributes["gen_ai.usage.input_tokens"] ?? "unknown")} · out ${String(attributes["gen_ai.usage.output_tokens"] ?? "unknown")}`,
+    `Redactions: ${findings.length === 0
+      ? "none recorded"
+      : findings.map(([category, count]) => `${label(category)} ${label(count)}`).join(" · ")}`,
   ].join("\n");
 };
 
