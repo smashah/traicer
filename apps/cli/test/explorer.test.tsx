@@ -238,20 +238,39 @@ describe("Traices Explorer", () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("SYSTEM INSTRUCTIONS");
     expect(frame).toContain("first request");
-    expect(frame).toContain("REDACTION OVERLAY");
-    expect(frame).toContain("OPENAI_KEY: 1");
-    expect(frame).toContain("REDACTION OPENAI_KEY #1");
+    // Redaction markers stay inline exactly as the pipeline wrote them, but the
+    // conversation does not annotate each one — this view is for judging whether a
+    // session is worth listing, not for auditing redaction.
+    expect(frame).toContain("<REDACTED:OPENAI_KEY:1>");
+    expect(frame).not.toContain("REDACTION OVERLAY");
+    expect(frame).not.toContain("REDACTION OPENAI_KEY #1");
     expect(frame).toContain("Page 1 of 2");
     await press("]");
     const secondPage = setup.captureCharFrame();
-    expect(secondPage).toContain("CALL read_file");
+    // Removing the per-replacement annotations shortened the thread, so the tool
+    // call now lands on page 1 and its result on page 2. Ordering is therefore
+    // asserted across pages, which is a stronger claim than within one frame.
+    expect(frame).toContain("CALL read_file");
+    expect(frame).not.toContain("RESULT read_file");
     expect(secondPage).toContain("\\u001b[2J");
     expect(secondPage).not.toContain("\u001b");
     expect(secondPage).toContain("RESULT read_file");
     expect(secondPage).toContain("FINAL OUTPUT");
     expect(secondPage).toContain("MODEL REASONING");
     expect(secondPage).toContain("finish: stop");
-    expect(secondPage.indexOf("CALL read_file")).toBeLessThan(secondPage.indexOf("RESULT read_file"));
+    expect(secondPage).toContain("result: file contents");
+    expect(secondPage).toContain("USAGE · input: 12 · output: 8 · reasoning: 3");
+
+    // Sell-side signals belong on the metadata tab: a seller deciding what is worth
+    // listing needs session shape at a glance, with redaction reduced to one line.
+    await press("tab");
+    await press("tab");
+    const metadataTab = setup.captureCharFrame();
+    expect(metadataTab).toContain("Turns: 4");
+    expect(metadataTab).toContain("Tool calls: 1");
+    expect(metadataTab).toContain("Tokens: in 12 · out 8");
+    expect(metadataTab).toContain("Redactions: OPENAI_KEY 1 · SECRET_FIELD 2");
+    expect(metadataTab).not.toContain("REDACTION OVERLAY");
   });
 
   test("renders an explicit empty-thread state instead of silently omitting malformed message lists", async () => {
