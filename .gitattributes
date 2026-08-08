@@ -1,0 +1,17 @@
+# Canonical generated-artifact block — mandate M-009 §6.
+# linguist-generated=true makes GitHub collapse these diffs in PRs and exclude
+# them from the +/- stats, so a 4k-line drizzle migration stops drowning the
+# 40-line source change that produced it. Reviewers (human and bot) review the
+# schema source; the compiled output is noise. Append to each repo's .gitattributes.
+drizzle/** linguist-generated=true
+**/drizzle/** linguist-generated=true
+**/migrations/*.sql linguist-generated=true
+**/migrations/**/*.sql linguist-generated=true
+**/migrations/meta/*.json linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+yarn.lock linguist-generated=true
+bun.lock linguist-generated=true
+bun.lockb linguist-generated=true
+*.lock linguist-generated=true
+**/__snapshots__/** linguist-generated=true
+**/generated/** linguist-generated=true
