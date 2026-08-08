@@ -10,6 +10,13 @@
 
 
 
+
+## 0.5.0
+<sub>2026-08-08</sub>
+
+- [#37](https://github.com/smashah/traicer/pull/37) [`282d616`](https://github.com/smashah/traicer/commit/282d616b81f5fd7912766b0ce7ddc1e901308b29)  *(minor)*
+  Read your captured sessions in `traicer explore` instead of scrolling raw JSON. Each trace opens as a conversation: turns in order by role, tool calls shown as calls with their arguments and matching results, model reasoning separated from final output, and token usage and finish reason per turn. The metadata tab summarises a session at a glance — turn count, tool-call volume and tokens — so it is easier to spot which sessions are substantial enough to be worth listing. Long sessions page instead of arriving as one wall of text, and the complete JSON stays one keypress away.
+
 ## 0.4.0
 <sub>2026-08-05</sub>
 
