@@ -1,0 +1,32 @@
+# Canonical CodeRabbit economy block — mandate M-009.
+# Merge these keys into each repo's .coderabbit.yaml (create the file from this
+# if the repo has none). Purpose: reviews are metered; spend them on significant
+# code changes only, never on ADRs, docs, lockfiles, or derived migrations.
+reviews:
+  path_filters:
+    - "!**/*.md"
+    - "!docs/**"
+    - "!**/docs/**"
+    - "!**/adr/**"
+    - "!**/adrs/**"
+    - "!**/migrations/**"
+    - "!**/drizzle/**"
+    - "!**/*.sql"
+    - "!**/*.lock"
+    - "!pnpm-lock.yaml"
+    - "!**/generated/**"
+    - "!**/__snapshots__/**"
+  auto_review:
+    # M-009 §0: reviews are OPT-IN. Agents request with @coderabbitai review
+    # after writing a justification naming the specific risk. Never automatic.
+    enabled: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "DRAFT"
+      - "docs:"
+      - "docs("
+      - "adr:"
+      - "chore(docs)"
+      - "chore(migrations)"
+      - "migration-only"
