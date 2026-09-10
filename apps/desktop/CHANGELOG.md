@@ -10,6 +10,12 @@
 
 
 
+
+## 0.5.0
+<sub>2026-08-08</sub>
+
+- *(minor)* Version bump from group with `@traice-market/traicer` v0.5.0
+
 ## 0.4.0
 <sub>2026-08-05</sub>
 
