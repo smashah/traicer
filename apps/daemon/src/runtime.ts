@@ -10,13 +10,21 @@ import {
   sha256Hex,
   signBytes,
 } from "@traice/crypto";
-import type { CapturePolicyV1, SignedSafeManifest } from "@traice/domain";
+import type { CanonicalTrace, CapturePolicyV1, SignedSafeManifest } from "@traice/domain";
 import {
   createMarketplaceClient,
   createMarketplaceManifestClient,
   type MarketplaceFetch,
 } from "@traice/marketplace-client";
 import { canonicalBytes, canonicalJson, redactExchange } from "@traice/privacy-pipeline";
+import {
+  ClassifierEndpointError,
+  createSessionLabeler,
+  createSystemOneClient,
+  inventoryDimensions,
+  type SystemOneClient,
+  type SystemOneFetch,
+} from "@traice/session-labels";
 import type { openOperationalState } from "@traice/state-sqlite";
 import { createS3CompatibleObjectStore } from "@traice/storage-s3";
 import {
@@ -37,8 +45,16 @@ import type { CaptureRoute } from "./capture-routes";
 
 type OperationalState = ReturnType<typeof openOperationalState>;
 
+export interface ClassifierSettings {
+  readonly apiKey?: string;
+  readonly baseUrl: string;
+  readonly fetch?: SystemOneFetch;
+  readonly model?: string;
+}
+
 export interface RuntimeOverrides {
   readonly cacheDirectory?: string;
+  readonly classifier?: ClassifierSettings;
   readonly cacheMaxBytes?: number;
   readonly marketplaceFetch?: MarketplaceFetch;
   readonly resolveRoute?: (routeToken: string) => Promise<CaptureRoute | undefined>;
@@ -107,6 +123,37 @@ export const createCaptureRuntime = (
   let marketplaceState: "connected" | "disconnected" | "unavailable" = bootstrap.marketplace.credential
     ? "unavailable"
     : "disconnected";
+  // Session labels: deterministic rules always run; a classifier is used only
+  // when the seller points Traicer at a /v1/systemone server on this machine.
+  let classifier: SystemOneClient | undefined;
+  if (overrides.classifier) {
+    try {
+      classifier = createSystemOneClient({
+        ...(overrides.classifier.apiKey ? { apiKey: overrides.classifier.apiKey } : {}),
+        baseUrl: overrides.classifier.baseUrl,
+        ...(overrides.classifier.fetch ? { fetch: overrides.classifier.fetch } : {}),
+      });
+    } catch (error) {
+      if (!(error instanceof ClassifierEndpointError)) throw error;
+      state.recordEvent("labels.classifier_rejected", { safeErrorCode: "classifier_not_loopback" });
+    }
+  }
+  let lastClassifierError = 0;
+  const labeler = createSessionLabeler({
+    ...(classifier ? { classifier } : {}),
+    ...(overrides.classifier?.model ? { model: overrides.classifier.model } : {}),
+    onClassifierError: () => {
+      if (Date.now() - lastClassifierError < 60_000) return;
+      lastClassifierError = Date.now();
+      state.recordEvent("labels.classifier_unavailable", { safeErrorCode: "classifier_unavailable" });
+    },
+    onError: () => state.recordEvent("labels.failed", { safeErrorCode: "labelling_failed" }),
+    restore: state.savedSessionLabels,
+    sink: { exchange: state.recordTraceLabels, session: state.recordSessionLabels },
+  });
+  const redactedTraces = new Map<string, CanonicalTrace>();
+  let labelsChanged = false;
+  let lastInventoryPublish = 0;
   const policy: CapturePolicyV1 = {
     allowedMethods: ["POST"],
     allowedPaths: [...new Set(adapters.flatMap((adapter) => adapter.allowedPaths))],
@@ -133,8 +180,15 @@ export const createCaptureRuntime = (
       encrypted: ({ canonicalHash, ciphertextHash, traceId }) => {
         storageReady = true;
         state.recordEncrypted(traceId, canonicalHash, ciphertextHash);
+        const trace = redactedTraces.get(traceId);
+        redactedTraces.delete(traceId);
+        if (trace) {
+          labelsChanged = true;
+          void labeler.ingest(trace, traceId);
+        }
       },
       failed: ({ code, stage, traceId }) => {
+        redactedTraces.delete(traceId);
         if (stage === "manifest") {
           state.recordEvent("manifest.delivery_deferred", {
             safeErrorCode: "marketplace_unavailable",
@@ -147,6 +201,9 @@ export const createCaptureRuntime = (
       manifestPending: ({ clientManifestId, traceId }) =>
         state.recordManifestPending(traceId, clientManifestId),
       observed: ({ capturedAt, traceId, ...context }) => state.recordObserved(traceId, capturedAt, context),
+      redacted: ({ trace, traceId }) => {
+        redactedTraces.set(traceId, trace);
+      },
     }
   );
   const scheduler = createGatewayScheduler();
@@ -188,6 +245,11 @@ export const createCaptureRuntime = (
       const scope = signed.manifest.projectScopeId ?? "unscoped";
       byScope.set(scope, [...(byScope.get(scope) ?? []), signed]);
     }
+    const sessionRows = state.sessionInventory();
+    const labelDimensions = (projectScopeId: string) =>
+      inventoryDimensions(sessionRows.filter((row) => (row.projectScopeId ?? "unscoped") === projectScopeId));
+    lastInventoryPublish = Date.now();
+    labelsChanged = false;
     const snapshotPayload = {
       aggregateDimensions: {
         providers: [...new Set(manifests.map(({ manifest }) => manifest.provider))],
@@ -203,24 +265,28 @@ export const createCaptureRuntime = (
       },
       deviceId: bootstrap.deviceId,
       generatedAt: now,
-      segments: [...byScope.entries()].map(([projectScopeId, scoped]) => ({
+      segments: [...byScope.entries()].map(([projectScopeId, scoped]) => {
+        const { domain = [], task = [], ...labelled } = labelDimensions(projectScopeId);
+        return {
         coarseningLevel: 1,
         effectiveFrom: sourceStartAt,
         eligibleManifestCount: scoped.length,
         filterDimensions: {
           adapter: [...new Set(scoped.map(({ manifest }) => manifest.adapter))],
-          domain: ["software-development"],
+          ...labelled,
+          domain: ["software-development", ...domain],
           model: [...new Set(scoped.map(({ manifest }) => manifest.model))],
           projectScopeId,
           provider: [...new Set(scoped.map(({ manifest }) => manifest.provider))],
-          task: ["coding-agent"],
+          task: ["coding-agent", ...task],
           verificationTier: ["self_attested"],
         },
         label: "Seller-approved coding-agent traces",
         tokenCountBand: tokenBand(scoped.reduce((total, item) => total + item.manifest.inputTokens + item.manifest.outputTokens, 0)),
         traceCountBand: traceBand(scoped.length),
         visibility: scoped.length >= 10 ? "qualified_buyers" as const : "private" as const,
-      })),
+        };
+      }),
       sourceEndAt,
       sourceStartAt,
     };
@@ -392,10 +458,21 @@ export const createCaptureRuntime = (
     return response.data;
   };
 
+  // Close idle sessions, then republish inventory at most hourly when labels changed.
+  const maintainLabels = async (): Promise<void> => {
+    if (await labeler.closeIdle() > 0) labelsChanged = true;
+    if (!labelsChanged || !captureEnabled || Date.now() - lastInventoryPublish < 3_600_000) return;
+    await publishInventory().catch(() => {
+      state.recordEvent("marketplace.inventory_deferred", { safeErrorCode: "marketplace_unavailable" });
+    });
+  };
+
   return {
     abortMultipart: objectStore.abortMultipart,
     gateway,
     deleteTrace,
+    labelsForTrace: state.labelsForTrace,
+    maintainLabels,
     initialize: async () => {
       await plaintextCache.purge();
       const checkedAt = new Date().toISOString();

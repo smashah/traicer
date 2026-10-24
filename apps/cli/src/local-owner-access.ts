@@ -112,6 +112,7 @@ export const createLocalOwnerAccess = async (directory: string) => {
     cacheStats: async () => ({ ...(await cache.stats()), maxAgeDays: 7 }),
     clearCache: () => cache.clear(),
     close: () => state.close(),
+    labels: async (traceId: string) => state.labelsForTrace(traceId),
     list: async (input: Partial<TraceInventoryOptions> = {}): Promise<readonly TraceSummary[]> =>
       state.traceInventory({
         limit: input.limit ?? 50,

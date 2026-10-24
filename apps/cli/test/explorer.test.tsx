@@ -202,7 +202,35 @@ describe("Traices Explorer", () => {
 
   test("renders an ordered, paged thread with tools, reasoning usage, and redaction findings", async () => {
     setup = await testRender(<ExplorerApp
-      client={{ list: async () => [], read: async () => { throw new Error("unused"); } }}
+      client={{
+        labels: async (traceId) => traceId !== "thread-trace" ? {} : {
+          exchange: {
+            doneClaim: true,
+            kind: "agent_step",
+            labelerVersion: "session-labels/1",
+            languages: ["typescript"],
+            schema: "traice.labels.exchange/1",
+            steps: [{ activity: "explore_read", result: "success" }],
+          },
+          session: {
+            closed: true,
+            counts: {
+              acceptedUnits: 1, contradictedClaims: 0, corrections: 1, failToPass: 1, failedChecks: 2,
+              flakyOrTestEdit: 0, permissionDenied: 0, skipsAdded: 1, suppressionsAdded: 0,
+              testTampering: 0, unverifiedClaims: 0, verifiedUnits: 1,
+            },
+            exchanges: 9,
+            labelerVersion: "session-labels/1",
+            languages: ["typescript", "sql"],
+            outcome: { confidence: 0.9, source: "rule", value: "completed_verified" },
+            schema: "traice.labels.session/1",
+            userRequests: 2,
+            workUnits: 1,
+          },
+        },
+        list: async () => [],
+        read: async () => { throw new Error("unused"); },
+      }}
       initialResult={{
         source: "cache",
         trace: {
@@ -271,6 +299,12 @@ describe("Traices Explorer", () => {
     expect(metadataTab).toContain("Tokens: in 12 · out 8");
     expect(metadataTab).toContain("Redactions: OPENAI_KEY 1 · SECRET_FIELD 2");
     expect(metadataTab).not.toContain("REDACTION OVERLAY");
+    expect(metadataTab).toContain("This step: explore read → success");
+    expect(metadataTab).toContain("Session: 9 exchanges · 2 requests · 1 finished task");
+    expect(metadataTab).toContain("Languages: typescript, sql");
+    expect(metadataTab).toContain("Outcome: completed verified");
+    expect(metadataTab).toContain("Evidence: 1 test fixed · 1 verified finish · 1 user correction");
+    expect(metadataTab).toContain("Flags: 1 skipped test");
   });
 
   test("renders an explicit empty-thread state instead of silently omitting malformed message lists", async () => {

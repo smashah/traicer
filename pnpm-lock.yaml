@@ -79,6 +79,9 @@ importers:
       '@traice/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@traice/session-labels':
+        specifier: workspace:*
+        version: link:../../packages/session-labels
       '@traice/state-sqlite':
         specifier: workspace:*
         version: link:../../packages/state-sqlite
@@ -121,6 +124,9 @@ importers:
       '@traice/privacy-pipeline':
         specifier: workspace:*
         version: link:../../packages/privacy-pipeline
+      '@traice/session-labels':
+        specifier: workspace:*
+        version: link:../../packages/session-labels
       '@traice/state-sqlite':
         specifier: workspace:*
         version: link:../../packages/state-sqlite
@@ -286,6 +292,19 @@ importers:
         specifier: 'catalog:'
         version: 6.0.3
 
+  packages/session-labels:
+    dependencies:
+      '@traice/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@types/bun':
+        specifier: 'catalog:'
+        version: 1.3.14
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
   packages/state-sqlite:
     dependencies:
       '@traice/capture-core':
@@ -294,6 +313,9 @@ importers:
       '@traice/domain':
         specifier: workspace:*
         version: link:../domain
+      '@traice/session-labels':
+        specifier: workspace:*
+        version: link:../session-labels
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(bun-types@1.3.14)

@@ -100,6 +100,8 @@ describe("daemon capture runtime", () => {
       bytesToBase64Url(wrappingKey),
       state,
       {
+        // A remote classifier must be refused: trace-derived state stays on this machine.
+        classifier: { baseUrl: "https://api.typesafe.ai" },
         marketplaceFetch: async (request) => {
           const parsed = await request.clone().json();
           submittedBodies.push(parsed);
@@ -165,6 +167,12 @@ describe("daemon capture runtime", () => {
     expect(plaintext).not.toContain("sk-abcdefghijklmnop");
     expect(state.counts()).toEqual({ committed: 0, pending: 1 });
     expect(state.traces(10, 0)[0]?.state).toBe("manifest_pending");
+    await Bun.sleep(20);
+    const labels = state.labelsForTrace(state.traces(10, 0)[0]!.traceId);
+    expect(labels.exchange?.kind).toBe("user_request");
+    expect(labels.session?.userRequests).toBe(1);
+    expect(JSON.stringify(labels)).not.toContain("RAW_CANARY_DO_NOT_EGRESS");
+    expect(state.eventsAfter(0).map((event) => event.kind)).toContain("labels.classifier_rejected");
     const egress = JSON.stringify(submittedBodies);
     expect(egress).not.toContain("RAW_CANARY_DO_NOT_EGRESS");
     expect(egress).not.toContain("provider-secret");

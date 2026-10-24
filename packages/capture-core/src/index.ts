@@ -5,6 +5,7 @@ import {
 } from "@traice/crypto";
 import {
   CANONICAL_TRACE_SCHEMA,
+  type CanonicalTrace,
   MANIFEST_SCHEMA,
   OTEL_GENAI_SEMCONV_COMMIT,
   OTEL_GENAI_PIPELINE_VERSION,
@@ -67,6 +68,12 @@ export interface CaptureEngineHooks {
     readonly clientManifestId: string;
     readonly traceId: string;
   }) => void;
+  // Receives the redacted canonical trace in-process (for local labelling).
+  // Implementations must not log, persist or transmit the trace itself.
+  readonly redacted?: (input: {
+    readonly trace: CanonicalTrace;
+    readonly traceId: string;
+  }) => void;
   readonly observed?: (input: {
     readonly captureRunId?: string;
     readonly capturedAt: string;
@@ -109,6 +116,7 @@ export const createCaptureEngine = (
         provider: observed.provider,
         traceId: observed.traceId,
       });
+      hooks.redacted?.({ trace, traceId: observed.traceId });
       const plaintext = canonicalBytes(trace);
       stage = "encryption";
       const encrypted = await encryptTraceEnvelope({

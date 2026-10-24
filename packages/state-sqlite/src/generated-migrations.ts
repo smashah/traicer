@@ -42,5 +42,18 @@ export const operationalMigrations = [
       "\nCREATE INDEX `trace_lifecycle_project_scope_idx` ON `trace_lifecycle` (`project_scope_id`,`captured_at`);"
     ],
     "tag": "0001_fast_queen_noir"
+  },
+  {
+    "bps": true,
+    "folderMillis": 1792875400578,
+    "hash": "570cfdf0769c4c99286dffde74d3f5686d7cb71710d64ab8a671eeff066c7fa3",
+    "idx": 2,
+    "sql": [
+      "CREATE TABLE `session_labels` (\n\t`closed_at` integer,\n\t`labeler_version` text NOT NULL,\n\t`labels_json` text NOT NULL,\n\t`project_scope_id` text,\n\t`session_key` text PRIMARY KEY NOT NULL,\n\t`updated_at` integer NOT NULL\n);\n",
+      "\nCREATE INDEX `session_labels_scope_idx` ON `session_labels` (`project_scope_id`);",
+      "\nCREATE TABLE `trace_labels` (\n\t`labeler_version` text NOT NULL,\n\t`labels_json` text NOT NULL,\n\t`session_key` text NOT NULL,\n\t`trace_id` text PRIMARY KEY NOT NULL,\n\t`updated_at` integer NOT NULL\n);\n",
+      "\nCREATE INDEX `trace_labels_session_idx` ON `trace_labels` (`session_key`);"
+    ],
+    "tag": "0002_nebulous_stranger"
   }
 ] satisfies OperationalMigration[];

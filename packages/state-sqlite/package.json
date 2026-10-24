@@ -19,6 +19,7 @@
   "dependencies": {
     "@traice/capture-core": "workspace:*",
     "@traice/domain": "workspace:*",
+    "@traice/session-labels": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

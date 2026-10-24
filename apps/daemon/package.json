@@ -19,6 +19,7 @@
     "@traice/effect-runtime": "workspace:*",
     "@traice/marketplace-client": "workspace:*",
     "@traice/privacy-pipeline": "workspace:*",
+    "@traice/session-labels": "workspace:*",
     "@traice/state-sqlite": "workspace:*",
     "@traice/storage-s3": "workspace:*",
     "@traice/trace-reader": "workspace:*",

@@ -4,6 +4,8 @@ Traicer sends only versioned, schema-validated control-plane records: device pub
 
 Safe manifest fields are limited to the manifest/canonical/pipeline schema markers and pinned OTel GenAI development convention, provider-exchange provenance, provider/client/adapter identifiers, coarse capture time, model and usage counts, encrypted byte count, canonical/ciphertext hashes, redaction category counts, policy version, storage capability profile and integrity assurance, non-reversible bucket alias/object commitment, device/signer identifiers, and signature. The exact field list is fixed in [ADR 0002](adr/0002-otel-genai-canonical-trace.md).
 
+Aggregate inventory segments may also carry label filter values from [session labels](SESSION_LABELS.md): `language`, `task`, `domain`, `outcome` and `signals`. Each value is a fixed enum, and it's included only when at least three sessions and ten committed traces in the segment carry it. Per-trace and per-session labels stay in the local state database. An optional classifier for richer labels must be a loopback `/v1/systemone` server, and requests to it never follow redirects.
+
 The marketplace client rejects generic metadata and common locator/secret field names before egress. Raw request/response bodies, prompts, code, filenames, repository names, local paths, bucket names, endpoints, object keys, presigned URLs, credentials, decryption keys, plaintext capabilities, headers, environment values, and free-form raw errors are prohibited.
 
 Local status and diagnostics contain bounded operational counts and safe error codes. They never include trace bodies or secret/bootstrap material. Traicer has no third-party analytics SDK.

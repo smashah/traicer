@@ -7,6 +7,7 @@ import { PauseRequestV1 } from "@traice/api-contract";
 import { constantTimeEqual } from "@traice/crypto";
 import type { CanonicalTrace } from "@traice/domain";
 import type { CaptureControlShape } from "@traice/effect-runtime";
+import type { ExchangeLabels, SessionLabels } from "@traice/session-labels";
 import type { TraceReadProgress } from "@traice/trace-reader";
 
 import type { CaptureRouteInput } from "./capture-routes";
@@ -19,6 +20,10 @@ export interface ControlDependencies {
   readonly commitDataset?: (requestId: string) => Promise<unknown>;
   readonly clearTraceCache?: () => Promise<{ readonly removed: number }>;
   readonly gatewayReady?: () => boolean;
+  readonly labelsForTrace?: (traceId: string) => {
+    readonly exchange?: ExchangeLabels;
+    readonly session?: SessionLabels;
+  };
   readonly issueCaptureRoute?: (input: CaptureRouteInput) => Promise<{
     readonly expiresAt: string;
     readonly routeId: string;
@@ -156,6 +161,14 @@ export const createControlApp = (dependencies: ControlDependencies) => {
     const limit = Number.parseInt(context.req.query("limit") ?? "50", 10);
     const offset = Number.parseInt(context.req.query("offset") ?? "0", 10);
     return context.json({ traces: dependencies.traces?.(limit, offset) ?? [] });
+  });
+
+  app.get("/v1/traces/:id/labels", (context) => {
+    const traceId = context.req.param("id");
+    if (traceId.length < 1 || traceId.length > 128) {
+      return context.json({ code: "INVALID_REQUEST", message: "A trace ID is required" }, 400);
+    }
+    return context.json({ labels: dependencies.labelsForTrace?.(traceId) ?? {} });
   });
 
   app.post("/v1/traces/read", async (context) => {

@@ -9,7 +9,8 @@ Traicer is the local seller-side service for capturing, protecting, storing, and
 3. [CLI reference](CLI.md) — commands, options, files, and Varlock behaviour.
 4. [Client configuration](CLIENT_CONFIGURATION.md) — route supported AI clients through Traicer.
 5. [Storage](STORAGE.md) — prepare Cloudflare R2, AWS S3, or another S3-compatible service.
-6. [Troubleshooting](TROUBLESHOOTING.md) — diagnose setup, storage, routing, and capture failures.
+6. [Session labels](SESSION_LABELS.md) — what Traicer labels locally, the optional on-machine classifier, and which label filters reach your inventory.
+7. [Troubleshooting](TROUBLESHOOTING.md) — diagnose setup, storage, routing, and capture failures.
 
 ## Understand the security design
 
@@ -23,7 +24,7 @@ Traicer is the local seller-side service for capturing, protecting, storing, and
 - `apps/cli` — the published `@traice-market/traicer` package: file-based initializer, secret encryption, daemon launcher, and owner trace access.
 - `apps/daemon` — the loopback capture daemon, compiled into a standalone Bun sidecar for the desktop app.
 - `apps/desktop` — the Tauri shell and React webview that supervise the sidecar and hold OS-vault secrets.
-- `packages/` — shared workspace packages: `domain`, `capture-core`, `privacy-pipeline`, `crypto`, `storage-s3`, `state-sqlite`, `trace-reader`, `marketplace-client`, `api-contract`, and `effect-runtime`.
+- `packages/` — shared workspace packages: `domain`, `capture-core`, `privacy-pipeline`, `crypto`, `storage-s3`, `state-sqlite`, `trace-reader`, `marketplace-client`, `api-contract`, `effect-runtime`, and `session-labels`.
 - `tooling/` — internal build configuration shared across the workspace.
 
 ## Maintain and release Traicer
