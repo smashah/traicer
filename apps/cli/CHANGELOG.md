@@ -10,6 +10,15 @@
 
 
 
+
+## 0.5.0
+<sub>2026-10-25</sub>
+
+- [#37](https://github.com/smashah/traicer/pull/37) [`282d616`](https://github.com/smashah/traicer/commit/282d616b81f5fd7912766b0ce7ddc1e901308b29)  *(minor)*
+  Read your captured sessions in `traicer explore` instead of scrolling raw JSON. Each trace opens as a conversation: turns in order by role, tool calls shown as calls with their arguments and matching results, model reasoning separated from final output, and token usage and finish reason per turn. The metadata tab summarises a session at a glance — turn count, tool-call volume and tokens — so it is easier to spot which sessions are substantial enough to be worth listing. Long sessions page instead of arriving as one wall of text, and the complete JSON stays one keypress away.
+- [#42](https://github.com/smashah/traicer/pull/42) [`2882071`](https://github.com/smashah/traicer/commit/2882071cb197644ebf4ee226411133dbe06d8fed)  *(minor)*
+  Traicer now labels your captured sessions on your machine, so you can see which sessions are worth listing. Each trace and session gets labels for what the agent's steps did, whether a failing test started passing after a code change, how the finished work was checked, whether the agent claimed tests passed when they didn't, and whether an edit skipped a test or silenced a check. The metadata tab in `traicer explore` shows them. Labels hold enum values and counts only, never prompts, code, file names or commands. For richer labels, such as task type and whether your reply accepted or corrected the agent, set `TRAICER_CLASSIFIER_URL` to a `/v1/systemone` classifier running on the same machine (Von, Kev, Rizzo Flow or laya-serve). Traicer refuses classifier addresses that aren't on this machine. Published inventory segments can now include `language`, `task`, `domain`, `outcome` and `signals` filters, and a value is only included when at least three sessions and ten committed traces in the segment carry it.
+
 ## 0.4.0
 <sub>2026-08-05</sub>
 
