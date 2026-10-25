@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 
 import type { MarketplaceManifestSink } from "@traice/capture-core";
 import type { CaptureProvider, SignedSafeManifest } from "@traice/domain";
+import type { ExchangeLabels, SessionInventoryRow, SessionLabels } from "@traice/session-labels";
 import { and, asc, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -15,6 +16,8 @@ import {
   operationalSchema,
   type SafeDetails,
   safeEvents,
+  sessionLabels,
+  traceLabels,
   traceLifecycle,
 } from "./schema";
 
@@ -273,6 +276,86 @@ export const openOperationalState = (path: string) => {
   };
 
   return {
+    // Labels for one trace and the session it belongs to, for local display.
+    labelsForTrace: (traceId: string): {
+      readonly exchange?: ExchangeLabels;
+      readonly session?: SessionLabels;
+    } => {
+      const row = db
+        .select({ labels: traceLabels.labels, sessionKey: traceLabels.sessionKey })
+        .from(traceLabels)
+        .where(eq(traceLabels.traceId, traceId))
+        .get();
+      if (!row) return {};
+      const session = db
+        .select({ labels: sessionLabels.labels })
+        .from(sessionLabels)
+        .where(eq(sessionLabels.sessionKey, row.sessionKey))
+        .get();
+      return { exchange: row.labels, ...(session ? { session: session.labels } : {}) };
+    },
+    savedSessionLabels: (sessionKey: string): SessionLabels | undefined =>
+      db
+        .select({ labels: sessionLabels.labels })
+        .from(sessionLabels)
+        .where(eq(sessionLabels.sessionKey, sessionKey))
+        .get()?.labels,
+    recordSessionLabels: (input: {
+      readonly labels: SessionLabels;
+      readonly projectScopeId?: string;
+      readonly sessionKey: string;
+    }): void => {
+      const now = Date.now();
+      const values = {
+        closedAt: input.labels.closed ? now : null,
+        labelerVersion: input.labels.labelerVersion,
+        labels: input.labels,
+        projectScopeId: input.projectScopeId ?? null,
+        updatedAt: now,
+      };
+      db.insert(sessionLabels)
+        .values({ ...values, sessionKey: input.sessionKey })
+        .onConflictDoUpdate({ set: values, target: sessionLabels.sessionKey })
+        .run();
+    },
+    recordTraceLabels: (input: {
+      readonly labels: ExchangeLabels;
+      readonly sessionKey: string;
+      readonly traceId: string;
+    }): void => {
+      const values = {
+        labelerVersion: input.labels.labelerVersion,
+        labels: input.labels,
+        sessionKey: input.sessionKey,
+        updatedAt: Date.now(),
+      };
+      db.insert(traceLabels)
+        .values({ ...values, traceId: input.traceId })
+        .onConflictDoUpdate({ set: values, target: traceLabels.traceId })
+        .run();
+    },
+    // Session rollups with the number of committed manifests behind each, for
+    // inventory filter dimensions.
+    sessionInventory: (): readonly (SessionInventoryRow & { readonly projectScopeId?: string })[] =>
+      db
+        .select({
+          labels: sessionLabels.labels,
+          manifestCount: count(manifestOutbox.clientManifestId),
+          projectScopeId: sessionLabels.projectScopeId,
+        })
+        .from(sessionLabels)
+        .innerJoin(traceLabels, eq(traceLabels.sessionKey, sessionLabels.sessionKey))
+        .innerJoin(
+          manifestOutbox,
+          and(eq(manifestOutbox.traceId, traceLabels.traceId), isNotNull(manifestOutbox.committedAt))
+        )
+        .groupBy(sessionLabels.sessionKey)
+        .all()
+        .map((row) => ({
+          labels: row.labels,
+          manifestCount: row.manifestCount,
+          ...(row.projectScopeId === null ? {} : { projectScopeId: row.projectScopeId }),
+        })),
     close: () => sqlite.close(),
     committedManifests: (limit = 10_000): readonly SignedSafeManifest[] =>
       db
@@ -510,6 +593,7 @@ export const openOperationalState = (path: string) => {
         tx.delete(manifestOutbox)
           .where(eq(manifestOutbox.clientManifestId, clientManifestId))
           .run();
+        tx.delete(traceLabels).where(eq(traceLabels.traceId, traceId)).run();
         tx.delete(traceLifecycle).where(eq(traceLifecycle.traceId, traceId)).run();
       });
       recordEvent("manifest.tombstoned", { deleted: true });

@@ -28,6 +28,7 @@
   "devDependencies": {
     "@traice/api-contract": "workspace:*",
     "@traice/crypto": "workspace:*",
+    "@traice/session-labels": "workspace:*",
     "@traice/state-sqlite": "workspace:*",
     "@traice/storage-s3": "workspace:*",
     "@traice/trace-reader": "workspace:*",

@@ -7,6 +7,8 @@ import {
 } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { ExchangeLabels, SessionLabels } from "@traice/session-labels";
+
 import type { TraceReadProgress, TraceReadResult, TraceSummary } from "./owner-access";
 
 export interface ExplorerStatus {
@@ -15,7 +17,13 @@ export interface ExplorerStatus {
   readonly storage: "configured" | "missing" | "unknown";
 }
 
+export interface TraceLabelsView {
+  readonly exchange?: ExchangeLabels;
+  readonly session?: SessionLabels;
+}
+
 export interface ExplorerClient {
+  readonly labels?: (traceId: string) => Promise<TraceLabelsView>;
   readonly list: (input?: { readonly limit?: number; readonly offset?: number }) => Promise<readonly TraceSummary[]>;
   readonly read: (
     selector: string,
@@ -167,7 +175,48 @@ const toolCalls = (input: readonly unknown[], output: readonly unknown[]): numbe
     0
   );
 
-const metadata = (trace: unknown): string => {
+const words = (value: string): string => value.replaceAll("_", " ");
+
+const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+// Plain-English summary of the local session labels, for sellers deciding what to list.
+const signals = (labels: TraceLabelsView | undefined): readonly string[] => {
+  if (!labels?.exchange && !labels?.session) {
+    return ["Labels: none yet (captured before labelling, or still being labelled)"];
+  }
+  const lines: string[] = [];
+  const step = labels.exchange?.steps
+    .map((item) => `${words(item.activity ?? "other tool")} → ${words(item.result)}`)
+    .join(" · ");
+  if (step) lines.push(`This step: ${step}`);
+  const task = labels.exchange?.request?.taskType;
+  if (task) lines.push(`Request: ${words(task.value)} (${Math.round(task.confidence * 100)}% sure)`);
+  const unit = labels.exchange?.workUnit;
+  if (unit) {
+    lines.push(`Finished task: ${unit.failToPass === "found" ? "a failing test now passes" : "no failing-to-passing test"} · checked by ${words(unit.verificationEvidence?.value ?? "nothing")}`);
+    if (unit.userVerdict) lines.push(`User reaction: ${words(unit.userVerdict.value)}`);
+  }
+  const session = labels.session;
+  if (session) {
+    lines.push(`Session: ${plural(session.exchanges, "exchange")} · ${plural(session.userRequests, "request")} · ${plural(session.workUnits, "finished task")}${session.closed ? "" : " (still open)"}`);
+    if (session.languages.length > 0) lines.push(`Languages: ${session.languages.join(", ")}`);
+    lines.push(`Outcome: ${words(session.outcome.value)}`);
+    const counts = session.counts;
+    lines.push(`Evidence: ${plural(counts.failToPass, "test fixed")} · ${plural(counts.verifiedUnits, "verified finish")} · ${plural(counts.corrections, "user correction")}`);
+    const flags = [
+      counts.testTampering > 0 ? plural(counts.testTampering, "test-weakening edit") : undefined,
+      counts.skipsAdded > 0 ? plural(counts.skipsAdded, "skipped test") : undefined,
+      counts.suppressionsAdded > 0 ? plural(counts.suppressionsAdded, "silenced check") : undefined,
+      counts.contradictedClaims + counts.unverifiedClaims > 0
+        ? plural(counts.contradictedClaims + counts.unverifiedClaims, "unsupported done claim")
+        : undefined,
+    ].filter((flag): flag is string => flag !== undefined);
+    if (flags.length > 0) lines.push(`Flags: ${flags.join(" · ")}`);
+  }
+  return lines;
+};
+
+const metadata = (trace: unknown, labels?: TraceLabelsView): string => {
   const value = record(trace);
   const span = record(value.span);
   const attributes = record(span.attributes);
@@ -190,6 +239,8 @@ const metadata = (trace: unknown): string => {
     `Redactions: ${findings.length === 0
       ? "none recorded"
       : findings.map(([category, count]) => `${label(category)} ${label(count)}`).join(" · ")}`,
+    "",
+    ...signals(labels),
   ].join("\n");
 };
 
@@ -222,6 +273,7 @@ export function ExplorerApp({
   const [tab, setTab] = useState<DetailTab>("conversation");
   const [detailPage, setDetailPage] = useState(0);
   const [detailOpen, setDetailOpen] = useState(Boolean(initialResult));
+  const [labelled, setLabelled] = useState<{ readonly labels: TraceLabelsView; readonly traceId: string }>();
 
   const visibleTraces = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -238,9 +290,24 @@ export function ExplorerApp({
   const json = useMemo(() => result ? JSON.stringify(result.trace, null, 2) : "", [result]);
   const detail = useMemo(() => {
     if (!result) return undefined;
-    if (tab === "metadata") return { pageCount: 1, text: metadata(result.trace) };
+    if (tab === "metadata") {
+      const traceId = record(record(result.trace).traice).traceId;
+      return { pageCount: 1, text: metadata(result.trace, labelled?.traceId === traceId ? labelled?.labels : undefined) };
+    }
     return tab === "json" ? rawJson(result.trace, detailPage) : conversation(result.trace, detailPage);
-  }, [detailPage, result, tab]);
+  }, [detailPage, labelled, result, tab]);
+
+  useEffect(() => {
+    const traceId = record(record(result?.trace).traice).traceId;
+    if (!client.labels || typeof traceId !== "string") return;
+    let active = true;
+    client.labels(traceId).then((labels) => {
+      if (active) setLabelled({ labels, traceId });
+    }, () => undefined);
+    return () => {
+      active = false;
+    };
+  }, [client, result]);
 
   const clearPlaintext = () => {
     setResult(undefined);

@@ -1,0 +1,5 @@
+---
+"@traice-market/traicer": minor
+---
+
+Traicer now labels your captured sessions on your machine, so you can see which sessions are worth listing. Each trace and session gets labels for what the agent's steps did, whether a failing test started passing after a code change, how the finished work was checked, whether the agent claimed tests passed when they didn't, and whether an edit skipped a test or silenced a check. The metadata tab in `traicer explore` shows them. Labels hold enum values and counts only, never prompts, code, file names or commands. For richer labels, such as task type and whether your reply accepted or corrected the agent, set `TRAICER_CLASSIFIER_URL` to a `/v1/systemone` classifier running on the same machine (Von, Kev, Rizzo Flow or laya-serve). Traicer refuses classifier addresses that aren't on this machine. Published inventory segments can now include `language`, `task`, `domain`, `outcome` and `signals` filters, and a value is only included when at least three sessions and ten committed traces in the segment carry it.

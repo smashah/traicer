@@ -26,6 +26,15 @@ const cacheMaxBytes = (() => {
   }
   return parsed;
 })();
+// Optional local classifier for richer session labels. It must be a
+// /v1/systemone server on this machine (Von, Kev, Rizzo Flow, laya-serve).
+const classifier = process.env.TRAICER_CLASSIFIER_URL
+  ? {
+      ...(process.env.TRAICER_CLASSIFIER_API_KEY ? { apiKey: process.env.TRAICER_CLASSIFIER_API_KEY } : {}),
+      baseUrl: process.env.TRAICER_CLASSIFIER_URL,
+      ...(process.env.TRAICER_CLASSIFIER_MODEL ? { model: process.env.TRAICER_CLASSIFIER_MODEL } : {}),
+    }
+  : undefined;
 const state = openOperationalState("traicer-state.db");
 const control = makeCaptureControl("healthy");
 const instanceId = crypto.randomUUID();
@@ -36,6 +45,7 @@ const runtime = bootstrap.capture
         ? { cacheDirectory: process.env.TRAICER_PLAINTEXT_CACHE_DIRECTORY }
         : {}),
       ...(cacheMaxBytes === undefined ? {} : { cacheMaxBytes }),
+      ...(classifier ? { classifier } : {}),
       resolveRoute: captureRoutes.resolve,
     })
   : undefined;
@@ -56,6 +66,7 @@ const controlApp = createControlApp({
         clearTraceCache: runtime.clearTraceCache,
         commitDataset: runtime.commitDataset,
         deleteTrace: runtime.deleteTrace,
+        labelsForTrace: runtime.labelsForTrace,
         onPause: runtime.pauseCapture,
         onResume: runtime.resumeCapture,
         proposeAgreement: runtime.proposeAgreement,
@@ -80,6 +91,7 @@ if (runtime) {
 const cleanupTimer = runtime
   ? setInterval(() => {
       void runtime.cleanupExpiredDeliveries();
+      void runtime.maintainLabels().catch(() => undefined);
       void runtime.purgeTraceCache().catch(() => {
         state.recordEvent("plaintext_cache.purge_failed", { safeErrorCode: "local_delete_failed" });
       });

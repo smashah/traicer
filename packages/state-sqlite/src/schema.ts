@@ -1,4 +1,5 @@
 import type { SignedSafeManifest } from "@traice/domain";
+import type { ExchangeLabels, SessionLabels } from "@traice/session-labels";
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
@@ -119,6 +120,33 @@ export const multipartUploads = sqliteTable("multipart_uploads", {
   uploadId: text("upload_id").notNull(),
 });
 
+// Derived session labels. They hold enum values, numbers and booleans only
+// (enforced by @traice/session-labels), never trace text.
+export const traceLabels = sqliteTable(
+  "trace_labels",
+  {
+    labelerVersion: text("labeler_version").notNull(),
+    labels: text("labels_json", { mode: "json" }).$type<ExchangeLabels>().notNull(),
+    sessionKey: text("session_key").notNull(),
+    traceId: text("trace_id").primaryKey(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("trace_labels_session_idx").on(table.sessionKey)]
+);
+
+export const sessionLabels = sqliteTable(
+  "session_labels",
+  {
+    closedAt: integer("closed_at"),
+    labelerVersion: text("labeler_version").notNull(),
+    labels: text("labels_json", { mode: "json" }).$type<SessionLabels>().notNull(),
+    projectScopeId: text("project_scope_id"),
+    sessionKey: text("session_key").primaryKey(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("session_labels_scope_idx").on(table.projectScopeId)]
+);
+
 export const operationalSchema = {
   deliveryObjects,
   manifestOutbox,
@@ -127,5 +155,7 @@ export const operationalSchema = {
   operationalState,
   safeAuditEvents,
   safeEvents,
+  sessionLabels,
+  traceLabels,
   traceLifecycle,
 };

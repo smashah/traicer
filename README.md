@@ -160,6 +160,10 @@ bunx @traice-market/traicer traces cache clear
 
 Before returning plaintext, Traicer verifies the ciphertext hash, decrypts locally, verifies the canonical hash, and validates the trace schema. Inspected plaintext is gzip-compressed under the configuration directory, capped at 512 MiB by default, and removed after seven days. Terminal output, confirmed clipboard copies, the desktop/TUI detail pane, and exported files contain sensitive plaintext.
 
+## Session labels
+
+Traicer labels each captured session on your machine: what the agent's steps did, whether a failing test started passing after a code change, how the work was checked, and whether an edit skipped a test or silenced a check. Rules produce these labels with no setup. For judgement calls, such as whether your reply accepted or corrected the agent, you can point `TRAICER_CLASSIFIER_URL` at a `/v1/systemone` classifier running on the same machine. The labels appear on the metadata tab in `traicer explore`. Inventory sent to Traice Market only gets label filters that at least three sessions share. See [Session labels](docs/SESSION_LABELS.md).
+
 ## Capture and compatibility
 
 Traicer does not change the system proxy or inject itself into coding tools. Fixed-gateway routes outside the allowlist are rejected; selected explicit-proxy traffic outside the capture set is forwarded without becoming a trace.
